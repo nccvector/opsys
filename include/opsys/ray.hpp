@@ -5,7 +5,7 @@
 namespace opsys {
 
 template <typename Ray>
-concept RayLike = requires(Ray ray, const Ray const_ray, double value) {
+concept SpectralRay = requires(Ray ray, const Ray const_ray, double value) {
     { const_ray.ox } -> std::convertible_to<double>;
     { const_ray.oy } -> std::convertible_to<double>;
     { const_ray.oz } -> std::convertible_to<double>;
@@ -23,7 +23,7 @@ concept RayLike = requires(Ray ray, const Ray const_ray, double value) {
     ray.wavelength = value;
 };
 
-[[nodiscard]] constexpr double ray_wavelength(const RayLike auto& ray) {
+[[nodiscard]] constexpr double ray_wavelength(const SpectralRay auto& ray) {
     return static_cast<double>(ray.wavelength);
 }
 

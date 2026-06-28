@@ -38,7 +38,7 @@ inline void normalize(double& x, double& y, double& z) {
     z /= len;
 }
 
-[[nodiscard]] inline bool finite_ray(const RayLike auto& ray) {
+[[nodiscard]] inline bool finite_ray(const SpectralRay auto& ray) {
     return std::isfinite(ray.ox)
         && std::isfinite(ray.oy)
         && std::isfinite(ray.oz)
@@ -117,7 +117,7 @@ enum class TraceStatus {
     total_internal_reflection,
 };
 
-template <RayLike Ray>
+template <SpectralRay Ray>
 struct TraceResult {
     TraceStatus status{TraceStatus::ok};
     Ray output_ray;
@@ -127,10 +127,10 @@ struct TraceResult {
 struct OpticalSystem {
     void add_surface(const OpticalSurface &surface);
 
-    template <RayLike Ray>
+    template <SpectralRay Ray>
     [[nodiscard]] TraceResult<Ray> trace(const Ray& input) const;
 
-    template <RayLike Ray>
+    template <SpectralRay Ray>
     [[nodiscard]] TraceResult<Ray> reverse_trace(const Ray& input) const;
 
     Medium initial_medium{};
@@ -161,7 +161,7 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
     system.surfaces.push_back(surface);
 }
 
-[[nodiscard]] inline std::optional<double> intersect_surface(const RayLike auto& ray, const OpticalSurface& surface) {
+[[nodiscard]] inline std::optional<double> intersect_surface(const SpectralRay auto& ray, const OpticalSurface& surface) {
     return std::visit([&](const auto& sagitta) -> std::optional<double> {
         using Sagitta = std::decay_t<decltype(sagitta)>;
 
@@ -268,7 +268,7 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
 namespace detail {
 
 [[nodiscard]] inline TraceStatus trace_surface(
-    RayLike auto& ray,
+    SpectralRay auto& ray,
     Medium& current_medium,
     const OpticalSurface& surface,
     const Medium& next_medium) {
@@ -323,7 +323,7 @@ namespace detail {
 
 } // namespace detail
 
-template <RayLike Ray>
+template <SpectralRay Ray>
 [[nodiscard]] inline TraceResult<Ray> trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
@@ -343,7 +343,7 @@ template <RayLike Ray>
     return {.status = TraceStatus::ok, .output_ray = ray, .surface_index = system.surfaces.size()};
 }
 
-template <RayLike Ray>
+template <SpectralRay Ray>
 [[nodiscard]] inline TraceResult<Ray> reverse_trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
@@ -369,12 +369,12 @@ inline void OpticalSystem::add_surface(const OpticalSurface &surface) {
     opsys::add_surface(*this, surface);
 }
 
-template <RayLike Ray>
+template <SpectralRay Ray>
 inline TraceResult<Ray> OpticalSystem::trace(const Ray& input) const {
     return opsys::trace(*this, input);
 }
 
-template <RayLike Ray>
+template <SpectralRay Ray>
 inline TraceResult<Ray> OpticalSystem::reverse_trace(const Ray& input) const {
     return opsys::reverse_trace(*this, input);
 }

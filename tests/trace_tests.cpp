@@ -26,7 +26,7 @@ bool near_point(const std::array<double, 3> lhs, const std::array<double, 3> rhs
         && near(lhs[2], rhs[2], tolerance);
 }
 
-[[nodiscard]] std::array<double, 3> normalized_direction(const opsys::RayLike auto& ray) {
+[[nodiscard]] std::array<double, 3> normalized_direction(const opsys::SpectralRay auto& ray) {
     const double length = std::sqrt(ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz);
     return {ray.dx / length, ray.dy / length, ray.dz / length};
 }
@@ -41,7 +41,7 @@ struct TestRay {
     double wavelength{};
 };
 
-std::optional<std::array<double, 3>> point_at_z(const opsys::RayLike auto& ray, const double z_mm) {
+std::optional<std::array<double, 3>> point_at_z(const opsys::SpectralRay auto& ray, const double z_mm) {
     if (near(ray.dz, 0.0, 1.0e-14)) {
         return std::nullopt;
     }
