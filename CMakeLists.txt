@@ -9,7 +9,20 @@ add_library(lenses INTERFACE)
 
 target_include_directories(lenses
         INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+
+target_sources(lenses
+        INTERFACE
+        FILE_SET HEADERS
+        BASE_DIRS include
+        FILES
+        include/lenses/geometry.hpp
+        include/lenses/lenses.hpp
+        include/lenses/medium.hpp
+        include/lenses/optical_system.hpp
+        include/lenses/ray.hpp
+        include/lenses/sagitta.hpp)
 
 target_compile_features(lenses INTERFACE cxx_std_23)
 

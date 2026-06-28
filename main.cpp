@@ -1,5 +1,4 @@
-#include "lenses/medium.hpp"
-#include "lenses/optical_system.hpp"
+#include "lenses/lenses.hpp"
 
 #include <iostream>
 
