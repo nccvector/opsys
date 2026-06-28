@@ -19,31 +19,27 @@ bool near(double lhs, double rhs, double tolerance) {
     return std::abs(lhs - rhs) <= tolerance;
 }
 
-lenses::MaterialCatalog make_catalog() {
-    lenses::MaterialCatalog materials;
-    lenses::add_material(materials, "air", lenses::make_air());
-    lenses::add_material(materials, "N-BK7", lenses::make_n_bk7());
-    lenses::add_material(materials, "dense", lenses::Material{lenses::ConstantIndex{1.5}});
-    return materials;
-}
-
 bool traces_plane_parallel_plate() {
-    lenses::OpticalSystem system{"air"};
+    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = "dense",
+        .medium_after = lenses::fixed_medium_catalog.dense,
         .shape = lenses::SagSurface{lenses::PlaneSag{}},
     });
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 5.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = "air",
+        .medium_after = lenses::fixed_medium_catalog.air,
         .shape = lenses::SagSurface{lenses::PlaneSag{}},
     });
 
-    const lenses::Ray ray = lenses::make_ray({0.0, 0.0, -1.0}, {0.1, 0.0, 1.0}, 550.0);
-    const lenses::TraceResult result = lenses::trace(system, ray, make_catalog());
+    const lenses::Ray ray{
+        .origin_mm = {0.0, 0.0, -1.0},
+        .direction = {0.09950371902099893, 0.0, 0.9950371902099893},
+        .wavelength_nm = 550.0,
+    };
+    const lenses::TraceResult result = lenses::trace(system, ray);
 
     return expect(result.status == lenses::TraceStatus::ok, "plane plate should trace")
         && expect(near(result.output_ray.direction.x, ray.direction.x, 1.0e-12), "parallel plate preserves outgoing x angle")
@@ -51,38 +47,46 @@ bool traces_plane_parallel_plate() {
 }
 
 bool rejects_aperture_miss() {
-    lenses::OpticalSystem system{"air"};
+    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 1.0,
-        .medium_after = "dense",
+        .medium_after = lenses::fixed_medium_catalog.dense,
         .shape = lenses::SagSurface{lenses::PlaneSag{}},
     });
 
-    const lenses::Ray ray = lenses::make_ray({2.0, 0.0, -1.0}, {0.0, 0.0, 1.0}, 550.0);
-    const lenses::TraceResult result = lenses::trace(system, ray, make_catalog());
+    const lenses::Ray ray{
+        .origin_mm = {2.0, 0.0, -1.0},
+        .direction = {0.0, 0.0, 1.0},
+        .wavelength_nm = 550.0,
+    };
+    const lenses::TraceResult result = lenses::trace(system, ray);
 
     return expect(result.status == lenses::TraceStatus::missed_aperture, "ray outside clear aperture should miss");
 }
 
 bool traces_spherical_surface() {
-    lenses::OpticalSystem system{"air"};
+    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = "dense",
+        .medium_after = lenses::fixed_medium_catalog.dense,
         .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = 50.0}},
     });
 
-    const lenses::Ray ray = lenses::make_ray({0.0, 4.0, -20.0}, {0.0, 0.0, 1.0}, 550.0);
-    const lenses::TraceResult result = lenses::trace(system, ray, make_catalog());
+    const lenses::Ray ray{
+        .origin_mm = {0.0, 4.0, -20.0},
+        .direction = {0.0, 0.0, 1.0},
+        .wavelength_nm = 550.0,
+    };
+    const lenses::TraceResult result = lenses::trace(system, ray);
 
     return expect(result.status == lenses::TraceStatus::ok, "spherical surface should trace")
         && expect(result.output_ray.direction.y < 0.0, "positive-radius spherical surface bends marginal ray toward axis");
 }
 
 bool bk7_dispersion_changes_index_with_nm_input() {
-    const lenses::Material bk7 = lenses::make_n_bk7();
+    const lenses::Material bk7 = lenses::n_bk7_material;
     const double blue = lenses::refractive_index(bk7, 486.1);
     const double red = lenses::refractive_index(bk7, 656.3);
 

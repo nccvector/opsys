@@ -4,30 +4,27 @@
 #include <iostream>
 
 int main() {
-    lenses::MaterialCatalog materials;
-    lenses::add_material(materials, "air", lenses::make_air());
-    lenses::add_material(materials, "N-BK7", lenses::make_n_bk7());
-
-    lenses::OpticalSystem system{"air"};
+    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 12.5,
-        .medium_after = "N-BK7",
+        .medium_after = lenses::fixed_medium_catalog.n_bk7,
         .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = 50.0}},
     });
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 5.0,
         .aperture_radius_mm = 12.5,
-        .medium_after = "air",
+        .medium_after = lenses::fixed_medium_catalog.air,
         .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = -50.0}},
     });
 
-    const lenses::Ray input = lenses::make_ray(
-        lenses::Vec3{0.0, 5.0, -20.0},
-        lenses::Vec3{0.0, 0.0, 1.0},
-        550.0);
+    const lenses::Ray input{
+        .origin_mm = {0.0, 5.0, -20.0},
+        .direction = {0.0, 0.0, 1.0},
+        .wavelength_nm = 550.0,
+    };
 
-    const lenses::TraceResult result = lenses::trace(system, input, materials);
+    const lenses::TraceResult result = lenses::trace(system, input);
     std::cout << "trace status: " << static_cast<int>(result.status) << '\n';
     std::cout << "origin mm: "
               << result.output_ray.origin_mm.x << ", "

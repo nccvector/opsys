@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <cmath>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -62,13 +61,12 @@ constexpr int k_newton_iterations = 32;
 struct OpticalSurface {
     double vertex_z_mm{};
     double aperture_radius_mm{};
-    std::string medium_after;
+    Medium medium_after{};
     SagSurface shape;
 };
 
 enum class TraceStatus {
     ok,
-    unknown_material,
     invalid_ray,
     no_intersection,
     missed_aperture,
@@ -84,9 +82,9 @@ struct TraceResult {
 struct OpticalSystem {
     void add_surface(OpticalSurface surface);
 
-    [[nodiscard]] TraceResult trace(const Ray& input, const MaterialCatalog& materials) const;
+    [[nodiscard]] TraceResult trace(const Ray& input) const;
 
-    std::string initial_medium;
+    Medium initial_medium{};
     std::vector<OpticalSurface> surfaces;
 };
 
@@ -155,24 +153,18 @@ inline void add_surface(OpticalSystem& system, OpticalSurface surface) {
     });
 }
 
-[[nodiscard]] inline TraceResult trace(
-    const OpticalSystem& system,
-    const Ray& input,
-    const MaterialCatalog& materials) {
+[[nodiscard]] inline TraceResult trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
     }
 
-    Ray ray = make_ray(input.origin_mm, input.direction, input.wavelength_nm);
-    std::string current_medium = system.initial_medium;
+    Ray ray = input;
+    Medium current_medium = system.initial_medium;
 
     for (std::size_t i = 0; i < system.surfaces.size(); ++i) {
         const OpticalSurface& surface = system.surfaces[i];
-        const Material* before = find_material(materials, current_medium);
-        const Material* after = find_material(materials, surface.medium_after);
-        if (before == nullptr || after == nullptr) {
-            return {.status = TraceStatus::unknown_material, .output_ray = ray, .surface_index = i};
-        }
+        const Medium& before = current_medium;
+        const Medium& after = surface.medium_after;
 
         const std::optional<double> hit_t = intersect_surface(ray, surface);
         if (!hit_t.has_value()) {
@@ -189,8 +181,8 @@ inline void add_surface(OpticalSystem& system, OpticalSurface surface) {
             return {.status = TraceStatus::no_intersection, .output_ray = ray, .surface_index = i};
         }
 
-        const double n_before = refractive_index(*before, ray.wavelength_nm);
-        const double n_after = refractive_index(*after, ray.wavelength_nm);
+        const double n_before = refractive_index(before, ray.wavelength_nm);
+        const double n_after = refractive_index(after, ray.wavelength_nm);
         const std::optional<Vec3> refracted = detail::refract(ray.direction, *normal, n_before, n_after);
         if (!refracted.has_value()) {
             return {.status = TraceStatus::total_internal_reflection, .output_ray = ray, .surface_index = i};
@@ -208,8 +200,8 @@ inline void OpticalSystem::add_surface(OpticalSurface surface) {
     lenses::add_surface(*this, std::move(surface));
 }
 
-inline TraceResult OpticalSystem::trace(const Ray& input, const MaterialCatalog& materials) const {
-    return lenses::trace(*this, input, materials);
+inline TraceResult OpticalSystem::trace(const Ray& input) const {
+    return lenses::trace(*this, input);
 }
 
 } // namespace lenses
