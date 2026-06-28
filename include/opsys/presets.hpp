@@ -3,6 +3,7 @@
 #include "opsys/optical_system.hpp"
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <span>
 #include <string_view>
@@ -77,12 +78,58 @@ struct OpticalPresetInfo {
     };
 }
 
-[[nodiscard]] inline constexpr OpticalSurface optical_surface(const OpticalSurfaceSpec& spec) {
-    return OpticalSurface{
-        .vertex_z_mm = spec.vertex_z_mm,
-        .aperture_radius_mm = spec.aperture_radius_mm,
-        .medium_after = spec.medium_after,
-        .shape = spec.shape,
+template <std::floating_point T>
+[[nodiscard]] inline constexpr MediumT<T> cast_medium(const Medium& medium) {
+    return std::visit([](const auto& model) -> MediumT<T> {
+        using Model = std::decay_t<decltype(model)>;
+
+        if constexpr (std::is_same_v<Model, ConstantIndex>) {
+            return MediumT<T>{ConstantIndexT<T>{.n = static_cast<T>(model.n)}};
+        } else if constexpr (std::is_same_v<Model, Sellmeier3>) {
+            return MediumT<T>{Sellmeier3T<T>{
+                .b = {
+                    static_cast<T>(model.b[0]),
+                    static_cast<T>(model.b[1]),
+                    static_cast<T>(model.b[2]),
+                },
+                .c_um2 = {
+                    static_cast<T>(model.c_um2[0]),
+                    static_cast<T>(model.c_um2[1]),
+                    static_cast<T>(model.c_um2[2]),
+                },
+            }};
+        } else {
+            return MediumT<T>{AbbeVdT<T>{
+                .nd = static_cast<T>(model.nd),
+                .vd = static_cast<T>(model.vd),
+            }};
+        }
+    }, medium.model);
+}
+
+template <std::floating_point T>
+[[nodiscard]] inline constexpr SagittaSurfaceT<T> cast_sagitta(const SagittaSurface& surface) {
+    return std::visit([](const auto& sagitta) -> SagittaSurfaceT<T> {
+        using Sagitta = std::decay_t<decltype(sagitta)>;
+
+        if constexpr (std::is_same_v<Sagitta, PlaneSagitta>) {
+            return SagittaSurfaceT<T>{PlaneSagitta{}};
+        } else {
+            return SagittaSurfaceT<T>{ConicSagittaT<T>{
+                .radius_mm = static_cast<T>(sagitta.radius_mm),
+                .conic_constant = static_cast<T>(sagitta.conic_constant),
+            }};
+        }
+    }, surface.model);
+}
+
+template <std::floating_point T = double>
+[[nodiscard]] inline constexpr OpticalSurfaceT<T> optical_surface(const OpticalSurfaceSpec& spec) {
+    return OpticalSurfaceT<T>{
+        .vertex_z_mm = static_cast<T>(spec.vertex_z_mm),
+        .aperture_radius_mm = static_cast<T>(spec.aperture_radius_mm),
+        .medium_after = cast_medium<T>(spec.medium_after),
+        .shape = cast_sagitta<T>(spec.shape),
     };
 }
 
@@ -279,17 +326,19 @@ inline constexpr std::array<OpticalPresetInfo, optical_preset_ids.size()> optica
     return std::span<const OpticalSurfaceSpec>{double_gauss_50mm_f2_surfaces};
 }
 
-[[nodiscard]] inline OpticalSystem optical_system(const std::span<const OpticalSurfaceSpec> surfaces) {
-    OpticalSystem system{air_medium};
+template <std::floating_point T = double>
+[[nodiscard]] inline OpticalSystemT<T> optical_system(const std::span<const OpticalSurfaceSpec> surfaces) {
+    OpticalSystemT<T> system{air_medium_v<T>};
     system.surfaces.reserve(surfaces.size());
     for (const OpticalSurfaceSpec& surface : surfaces) {
-        add_surface(system, optical_surface(surface));
+        add_surface(system, optical_surface<T>(surface));
     }
     return system;
 }
 
-[[nodiscard]] inline OpticalSystem optical_system(const OpticalPresetId id) {
-    return optical_system(optical_preset_surfaces(id));
+template <std::floating_point T = double>
+[[nodiscard]] inline OpticalSystemT<T> optical_system(const OpticalPresetId id) {
+    return optical_system<T>(optical_preset_surfaces(id));
 }
 
 } // namespace opsys

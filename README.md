@@ -7,7 +7,7 @@ The repository also includes a raylib editor for inspecting and tweaking optical
 ## What is included
 
 - Header-only `opsys` library under `include/opsys`.
-- Value-based `Medium`, `OpticalSurface`, and `OpticalSystem` types.
+- Value-based `MediumT<T>`, `OpticalSurfaceT<T>`, and `OpticalSystemT<T>` types, with `double` aliases.
 - External ray support through the `opsys::SpectralRay` concept.
 - No owned ray or vector implementation; tracing uses scalar fields from caller-owned rays.
 - `PlaneSagitta` and `ConicSagitta` surface models.
@@ -68,7 +68,36 @@ int main() {
 }
 ```
 
-`MyRay` can be any caller-owned type with mutable `ox`, `oy`, `oz`, `dx`, `dy`, `dz`, and `wavelength` fields convertible to `double`.
+`MyRay` can be any caller-owned type with mutable floating-point `ox`, `oy`, `oz`, `dx`, `dy`, `dz`, and `wavelength` fields. `opsys::SpectralRay` infers the field scalar as `opsys::ray_scalar_t<MyRay>`.
+
+## Scalar Type
+
+The unsuffixed types are `double` aliases:
+
+```cpp
+using OpticalSystem = OpticalSystemT<double>;
+using OpticalSurface = OpticalSurfaceT<double>;
+using Medium = MediumT<double>;
+```
+
+Use the `T` forms when you want `float` storage and math:
+
+```cpp
+struct FloatRay {
+    float ox{}, oy{}, oz{};
+    float dx{}, dy{}, dz{};
+    float wavelength{};
+};
+
+opsys::OpticalSystemT<float> system =
+    opsys::optical_system<float>(opsys::OpticalPresetId::double_gauss_50mm_f2);
+
+const opsys::TraceResult<FloatRay> result = opsys::trace(system, FloatRay{
+    .oz = -40.0F,
+    .dz = 1.0F,
+    .wavelength = 550.0F,
+});
+```
 
 ## Fixed preset gallery
 

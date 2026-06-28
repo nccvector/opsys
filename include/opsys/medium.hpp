@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -9,42 +10,53 @@
 
 namespace opsys {
 
-struct ConstantIndex {
-    double n{};
+template <std::floating_point T>
+struct ConstantIndexT {
+    T n{};
 };
 
-struct Sellmeier3 {
+template <std::floating_point T>
+struct Sellmeier3T {
     // C coefficients are in micrometer^2. Input wavelengths are still nm.
-    std::array<double, 3> b{};
-    std::array<double, 3> c_um2{};
+    std::array<T, 3> b{};
+    std::array<T, 3> c_um2{};
 };
 
-struct AbbeVd {
-    double nd{};
-    double vd{};
+template <std::floating_point T>
+struct AbbeVdT {
+    T nd{};
+    T vd{};
 };
 
-struct Medium {
-    constexpr Medium() = default;
-    explicit constexpr Medium(ConstantIndex constant) : model(constant) {}
-    explicit constexpr Medium(Sellmeier3 sellmeier) : model(sellmeier) {}
-    explicit constexpr Medium(AbbeVd abbe) : model(abbe) {}
+using ConstantIndex = ConstantIndexT<double>;
+using Sellmeier3 = Sellmeier3T<double>;
+using AbbeVd = AbbeVdT<double>;
 
-    [[nodiscard]] double refractive_index(double wavelength_nm) const;
+template <std::floating_point T>
+struct MediumT {
+    constexpr MediumT() = default;
+    explicit constexpr MediumT(ConstantIndexT<T> constant) : model(constant) {}
+    explicit constexpr MediumT(Sellmeier3T<T> sellmeier) : model(sellmeier) {}
+    explicit constexpr MediumT(AbbeVdT<T> abbe) : model(abbe) {}
 
-    std::variant<ConstantIndex, Sellmeier3, AbbeVd> model{ConstantIndex{1.0}};
+    [[nodiscard]] T refractive_index(T wavelength_nm) const;
+
+    std::variant<ConstantIndexT<T>, Sellmeier3T<T>, AbbeVdT<T>> model{ConstantIndexT<T>{T{1}}};
 };
 
-[[nodiscard]] inline double refractive_index(const Medium& medium, double wavelength_nm) {
+using Medium = MediumT<double>;
+
+template <std::floating_point T>
+[[nodiscard]] inline T refractive_index(const MediumT<T>& medium, T wavelength_nm) {
     return std::visit([wavelength_nm](const auto& model) {
         using Model = std::decay_t<decltype(model)>;
 
-        if constexpr (std::is_same_v<Model, ConstantIndex>) {
+        if constexpr (std::is_same_v<Model, ConstantIndexT<T>>) {
             return model.n;
-        } else if constexpr (std::is_same_v<Model, Sellmeier3>) {
-            const double lambda_um = wavelength_nm * 0.001;
-            const double lambda2 = lambda_um * lambda_um;
-            double n2 = 1.0;
+        } else if constexpr (std::is_same_v<Model, Sellmeier3T<T>>) {
+            const T lambda_um = wavelength_nm * T{0.001};
+            const T lambda2 = lambda_um * lambda_um;
+            T n2 = T{1};
 
             for (std::size_t i = 0; i < model.b.size(); ++i) {
                 n2 += model.b[i] * lambda2 / (lambda2 - model.c_um2[i]);
@@ -52,25 +64,26 @@ struct Medium {
 
             return std::sqrt(n2);
         } else {
-            if (model.vd <= 0.0) {
+            if (model.vd <= T{0}) {
                 return model.nd;
             }
 
-            constexpr double lambda_c_um = 0.6562725;
-            constexpr double lambda_d_um = 0.5875618;
-            constexpr double lambda_f_um = 0.4861327;
-            const double lambda_um = wavelength_nm * 0.001;
-            const double delta_fc = (model.nd - 1.0) / model.vd;
-            const double cauchy_b = delta_fc
-                / (1.0 / (lambda_f_um * lambda_f_um) - 1.0 / (lambda_c_um * lambda_c_um));
-            const double cauchy_a = model.nd - cauchy_b / (lambda_d_um * lambda_d_um);
+            constexpr T lambda_c_um = T{0.6562725};
+            constexpr T lambda_d_um = T{0.5875618};
+            constexpr T lambda_f_um = T{0.4861327};
+            const T lambda_um = wavelength_nm * T{0.001};
+            const T delta_fc = (model.nd - T{1}) / model.vd;
+            const T cauchy_b = delta_fc
+                / (T{1} / (lambda_f_um * lambda_f_um) - T{1} / (lambda_c_um * lambda_c_um));
+            const T cauchy_a = model.nd - cauchy_b / (lambda_d_um * lambda_d_um);
 
             return cauchy_a + cauchy_b / (lambda_um * lambda_um);
         }
     }, medium.model);
 }
 
-inline double Medium::refractive_index(double wavelength_nm) const {
+template <std::floating_point T>
+inline T MediumT<T>::refractive_index(T wavelength_nm) const {
     return opsys::refractive_index(*this, wavelength_nm);
 }
 
@@ -83,29 +96,42 @@ enum class MediumId {
     dense,
 };
 
-inline constexpr Medium air_medium{ConstantIndex{1.0}};
+template <std::floating_point T>
+inline constexpr MediumT<T> air_medium_v{ConstantIndexT<T>{T{1}}};
 
-inline constexpr Medium n_bk7_medium{Sellmeier3{
-        .b = {1.03961212, 0.231792344, 1.01046945},
-        .c_um2 = {0.00600069867, 0.0200179144, 103.560653},
+template <std::floating_point T>
+inline constexpr MediumT<T> n_bk7_medium_v{Sellmeier3T<T>{
+        .b = {T{1.03961212}, T{0.231792344}, T{1.01046945}},
+        .c_um2 = {T{0.00600069867}, T{0.0200179144}, T{103.560653}},
 }};
 
-inline constexpr Medium n_sf6_medium{Sellmeier3{
-        .b = {1.72448482, 0.390104889, 1.04572858},
-        .c_um2 = {0.01349871764, 0.05694099484, 118.5571585},
+template <std::floating_point T>
+inline constexpr MediumT<T> n_sf6_medium_v{Sellmeier3T<T>{
+        .b = {T{1.72448482}, T{0.390104889}, T{1.04572858}},
+        .c_um2 = {T{0.01349871764}, T{0.05694099484}, T{118.5571585}},
 }};
 
-inline constexpr Medium n_lak9_medium{Sellmeier3{
-        .b = {1.46231905, 0.344399589, 1.15508372},
-        .c_um2 = {0.00724270156, 0.0243353131, 85.4686868},
+template <std::floating_point T>
+inline constexpr MediumT<T> n_lak9_medium_v{Sellmeier3T<T>{
+        .b = {T{1.46231905}, T{0.344399589}, T{1.15508372}},
+        .c_um2 = {T{0.00724270156}, T{0.0243353131}, T{85.4686868}},
 }};
 
-inline constexpr Medium n_sf11_medium{Sellmeier3{
-        .b = {1.73759695, 0.313747346, 1.89878101},
-        .c_um2 = {0.01318871330, 0.06238975890, 155.2362900},
+template <std::floating_point T>
+inline constexpr MediumT<T> n_sf11_medium_v{Sellmeier3T<T>{
+        .b = {T{1.73759695}, T{0.313747346}, T{1.89878101}},
+        .c_um2 = {T{0.01318871330}, T{0.06238975890}, T{155.2362900}},
 }};
 
-inline constexpr Medium dense_medium{ConstantIndex{1.5}};
+template <std::floating_point T>
+inline constexpr MediumT<T> dense_medium_v{ConstantIndexT<T>{T{1.5}}};
+
+inline constexpr Medium air_medium = air_medium_v<double>;
+inline constexpr Medium n_bk7_medium = n_bk7_medium_v<double>;
+inline constexpr Medium n_sf6_medium = n_sf6_medium_v<double>;
+inline constexpr Medium n_lak9_medium = n_lak9_medium_v<double>;
+inline constexpr Medium n_sf11_medium = n_sf11_medium_v<double>;
+inline constexpr Medium dense_medium = dense_medium_v<double>;
 
 inline constexpr std::array<MediumId, 6> medium_catalog_ids{
     MediumId::air,
@@ -116,23 +142,24 @@ inline constexpr std::array<MediumId, 6> medium_catalog_ids{
     MediumId::dense,
 };
 
-[[nodiscard]] inline constexpr Medium medium(const MediumId id) {
+template <std::floating_point T = double>
+[[nodiscard]] inline constexpr MediumT<T> medium(const MediumId id) {
     switch (id) {
         case MediumId::air:
-            return air_medium;
+            return air_medium_v<T>;
         case MediumId::n_bk7:
-            return n_bk7_medium;
+            return n_bk7_medium_v<T>;
         case MediumId::n_sf6:
-            return n_sf6_medium;
+            return n_sf6_medium_v<T>;
         case MediumId::n_lak9:
-            return n_lak9_medium;
+            return n_lak9_medium_v<T>;
         case MediumId::n_sf11:
-            return n_sf11_medium;
+            return n_sf11_medium_v<T>;
         case MediumId::dense:
-            return dense_medium;
+            return dense_medium_v<T>;
     }
 
-    return air_medium;
+    return air_medium_v<T>;
 }
 
 [[nodiscard]] inline constexpr std::string_view medium_name(const MediumId id) {

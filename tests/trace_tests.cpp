@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <iostream>
 #include <optional>
 #include <string_view>
@@ -40,6 +41,20 @@ struct TestRay {
     double dz{};
     double wavelength{};
 };
+
+struct FloatRay {
+    float ox{};
+    float oy{};
+    float oz{};
+    float dx{};
+    float dy{};
+    float dz{};
+    float wavelength{};
+};
+
+static_assert(opsys::SpectralRay<TestRay>);
+static_assert(opsys::SpectralRay<FloatRay>);
+static_assert(std::same_as<opsys::ray_scalar_t<FloatRay>, float>);
 
 std::optional<std::array<double, 3>> point_at_z(const opsys::SpectralRay auto& ray, const double z_mm) {
     if (near(ray.dz, 0.0, 1.0e-14)) {
@@ -110,6 +125,30 @@ bool rejects_aperture_miss() {
     const opsys::TraceResult<TestRay> result = opsys::trace(system, ray);
 
     return expect(result.status == opsys::TraceStatus::missed_aperture, "ray outside clear aperture should miss");
+}
+
+bool traces_float_system_and_ray() {
+    opsys::OpticalSystemT<float> system{opsys::air_medium_v<float>};
+    opsys::add_surface(system, opsys::OpticalSurfaceT<float>{
+        .vertex_z_mm = 0.0F,
+        .aperture_radius_mm = 10.0F,
+        .medium_after = opsys::dense_medium_v<float>,
+        .shape = opsys::SagittaSurfaceT<float>{opsys::PlaneSagitta{}},
+    });
+
+    const FloatRay ray{
+        .ox = 0.0F,
+        .oy = 0.0F,
+        .oz = -1.0F,
+        .dx = 0.0F,
+        .dy = 0.0F,
+        .dz = 1.0F,
+        .wavelength = 550.0F,
+    };
+    const opsys::TraceResult<FloatRay> result = opsys::trace(system, ray);
+
+    return expect(result.status == opsys::TraceStatus::ok, "float ray should trace")
+        && expect(near(result.output_ray.oz, 1.0e-9, 1.0e-7), "float trace should update origin past surface");
 }
 
 bool traces_spherical_surface() {
@@ -279,6 +318,7 @@ int main() {
     bool ok = true;
     ok = traces_plane_parallel_plate() && ok;
     ok = rejects_aperture_miss() && ok;
+    ok = traces_float_system_and_ray() && ok;
     ok = traces_spherical_surface() && ok;
     ok = traces_paraboloid_surface() && ok;
     ok = bk7_dispersion_changes_index_with_nm_input() && ok;
