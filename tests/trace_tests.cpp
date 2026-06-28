@@ -1,4 +1,4 @@
-#include "lenses/material.hpp"
+#include "lenses/medium.hpp"
 #include "lenses/optical_system.hpp"
 
 #include <cmath>
@@ -20,18 +20,18 @@ bool near(double lhs, double rhs, double tolerance) {
 }
 
 bool traces_plane_parallel_plate() {
-    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
+    lenses::OpticalSystem system{lenses::air_medium};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::fixed_medium_catalog.dense,
-        .shape = lenses::SagSurface{lenses::PlaneSag{}},
+        .medium_after = lenses::dense_medium,
+        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
     });
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 5.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::fixed_medium_catalog.air,
-        .shape = lenses::SagSurface{lenses::PlaneSag{}},
+        .medium_after = lenses::air_medium,
+        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
     });
 
     const lenses::Ray ray{
@@ -47,12 +47,12 @@ bool traces_plane_parallel_plate() {
 }
 
 bool rejects_aperture_miss() {
-    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
+    lenses::OpticalSystem system{lenses::air_medium};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 1.0,
-        .medium_after = lenses::fixed_medium_catalog.dense,
-        .shape = lenses::SagSurface{lenses::PlaneSag{}},
+        .medium_after = lenses::dense_medium,
+        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
     });
 
     const lenses::Ray ray{
@@ -66,12 +66,12 @@ bool rejects_aperture_miss() {
 }
 
 bool traces_spherical_surface() {
-    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
+    lenses::OpticalSystem system{lenses::air_medium};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::fixed_medium_catalog.dense,
-        .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = 50.0}},
+        .medium_after = lenses::dense_medium,
+        .shape = lenses::SagittaSurface{lenses::ConicSagitta{.radius_mm = 50.0}},
     });
 
     const lenses::Ray ray{
@@ -85,8 +85,31 @@ bool traces_spherical_surface() {
         && expect(result.output_ray.direction.y < 0.0, "positive-radius spherical surface bends marginal ray toward axis");
 }
 
+bool traces_paraboloid_surface() {
+    lenses::OpticalSystem system{lenses::air_medium};
+    lenses::add_surface(system, lenses::OpticalSurface{
+        .vertex_z_mm = 0.0,
+        .aperture_radius_mm = 10.0,
+        .medium_after = lenses::dense_medium,
+        .shape = lenses::SagittaSurface{lenses::ConicSagitta{
+            .radius_mm = 50.0,
+            .conic_constant = -1.0,
+        }},
+    });
+
+    const lenses::Ray ray{
+        .origin_mm = {0.0, 4.0, -20.0},
+        .direction = {0.0, 0.0, 1.0},
+        .wavelength_nm = 550.0,
+    };
+    const lenses::TraceResult result = lenses::trace(system, ray);
+
+    return expect(result.status == lenses::TraceStatus::ok, "paraboloid surface should trace")
+        && expect(result.output_ray.direction.y < 0.0, "positive-radius paraboloid bends marginal ray toward axis");
+}
+
 bool bk7_dispersion_changes_index_with_nm_input() {
-    const lenses::Material bk7 = lenses::n_bk7_material;
+    const lenses::Medium bk7 = lenses::n_bk7_medium;
     const double blue = lenses::refractive_index(bk7, 486.1);
     const double red = lenses::refractive_index(bk7, 656.3);
 
@@ -100,6 +123,7 @@ int main() {
     ok = traces_plane_parallel_plate() && ok;
     ok = rejects_aperture_miss() && ok;
     ok = traces_spherical_surface() && ok;
+    ok = traces_paraboloid_surface() && ok;
     ok = bk7_dispersion_changes_index_with_nm_input() && ok;
 
     return ok ? 0 : 1;

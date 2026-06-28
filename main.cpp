@@ -1,24 +1,24 @@
-#include "lenses/material.hpp"
+#include "lenses/medium.hpp"
 #include "lenses/optical_system.hpp"
 
 #include <iostream>
 
 int main() {
-    lenses::OpticalSystem system{lenses::fixed_medium_catalog.air};
+    lenses::OpticalSystem system{lenses::air_medium};
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 12.5,
-        .medium_after = lenses::fixed_medium_catalog.n_bk7,
-        .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = 50.0}},
+        .medium_after = lenses::n_bk7_medium,
+        .shape = lenses::SagittaSurface{lenses::ConicSagitta{.radius_mm = 50.0}},
     });
     lenses::add_surface(system, lenses::OpticalSurface{
         .vertex_z_mm = 5.0,
         .aperture_radius_mm = 12.5,
-        .medium_after = lenses::fixed_medium_catalog.air,
-        .shape = lenses::SagSurface{lenses::SphericalSag{.radius_mm = -50.0}},
+        .medium_after = lenses::air_medium,
+        .shape = lenses::SagittaSurface{lenses::ConicSagitta{.radius_mm = -50.0}},
     });
 
-    const lenses::Ray input{
+    constexpr lenses::Ray input{
         .origin_mm = {0.0, 5.0, -20.0},
         .direction = {0.0, 0.0, 1.0},
         .wavelength_nm = 550.0,

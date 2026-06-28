@@ -9,11 +9,11 @@ struct Vec3 {
     double y{};
     double z{};
 
-    [[nodiscard]] constexpr Vec3 operator+(Vec3 rhs) const {
+    [[nodiscard]] constexpr Vec3 operator+(const Vec3 rhs) const {
         return {x + rhs.x, y + rhs.y, z + rhs.z};
     }
 
-    [[nodiscard]] constexpr Vec3 operator-(Vec3 rhs) const {
+    [[nodiscard]] constexpr Vec3 operator-(const Vec3 rhs) const {
         return {x - rhs.x, y - rhs.y, z - rhs.z};
     }
 
@@ -25,24 +25,24 @@ struct Vec3 {
         return {x * scale, y * scale, z * scale};
     }
 
-    [[nodiscard]] constexpr Vec3 operator/(double scale) const {
+    [[nodiscard]] constexpr Vec3 operator/(const double scale) const {
         return {x / scale, y / scale, z / scale};
     }
 };
 
-[[nodiscard]] constexpr Vec3 operator*(double scale, Vec3 value) {
+[[nodiscard]] constexpr Vec3 operator*(const double scale, const Vec3 &value) {
     return value * scale;
 }
 
-[[nodiscard]] constexpr double dot(Vec3 lhs, Vec3 rhs) {
+[[nodiscard]] constexpr double dot(const Vec3 &lhs, const Vec3 &rhs) {
     return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
 }
 
-[[nodiscard]] inline double length(Vec3 value) {
+[[nodiscard]] inline double length(const Vec3 &value) {
     return std::sqrt(dot(value, value));
 }
 
-[[nodiscard]] inline Vec3 normalize(Vec3 value) {
+[[nodiscard]] inline Vec3 normalize(const Vec3 &value) {
     const double len = length(value);
     return value / len;
 }

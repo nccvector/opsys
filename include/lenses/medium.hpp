@@ -18,17 +18,17 @@ struct Sellmeier3 {
     std::array<double, 3> c_um2{};
 };
 
-struct Material {
-    constexpr Material() = default;
-    explicit constexpr Material(ConstantIndex constant) : model(constant) {}
-    explicit constexpr Material(Sellmeier3 sellmeier) : model(sellmeier) {}
+struct Medium {
+    constexpr Medium() = default;
+    explicit constexpr Medium(ConstantIndex constant) : model(constant) {}
+    explicit constexpr Medium(Sellmeier3 sellmeier) : model(sellmeier) {}
 
     [[nodiscard]] double refractive_index(double wavelength_nm) const;
 
     std::variant<ConstantIndex, Sellmeier3> model{ConstantIndex{1.0}};
 };
 
-[[nodiscard]] inline double refractive_index(const Material& material, double wavelength_nm) {
+[[nodiscard]] inline double refractive_index(const Medium& medium, double wavelength_nm) {
     return std::visit([wavelength_nm](const auto& model) {
         using Model = std::decay_t<decltype(model)>;
 
@@ -45,40 +45,20 @@ struct Material {
 
             return std::sqrt(n2);
         }
-    }, material.model);
+    }, medium.model);
 }
 
-inline double Material::refractive_index(double wavelength_nm) const {
+inline double Medium::refractive_index(double wavelength_nm) const {
     return lenses::refractive_index(*this, wavelength_nm);
 }
 
-struct Medium {
-    Material material{};
-};
+inline constexpr Medium air_medium{ConstantIndex{1.0}};
 
-[[nodiscard]] inline double refractive_index(const Medium& medium, double wavelength_nm) {
-    return refractive_index(medium.material, wavelength_nm);
-}
-
-inline constexpr Material air_material{ConstantIndex{1.0}};
-
-inline constexpr Material n_bk7_material{Sellmeier3{
+inline constexpr Medium n_bk7_medium{Sellmeier3{
         .b = {1.03961212, 0.231792344, 1.01046945},
         .c_um2 = {0.00600069867, 0.0200179144, 103.560653},
 }};
 
-inline constexpr Material dense_material{ConstantIndex{1.5}};
-
-struct FixedMediumCatalog {
-    Medium air{};
-    Medium n_bk7{};
-    Medium dense{};
-};
-
-inline constexpr FixedMediumCatalog fixed_medium_catalog{
-    .air = Medium{.material = air_material},
-    .n_bk7 = Medium{.material = n_bk7_material},
-    .dense = Medium{.material = dense_material},
-};
+inline constexpr Medium dense_medium{ConstantIndex{1.5}};
 
 } // namespace lenses
