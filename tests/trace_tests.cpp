@@ -1,7 +1,9 @@
 #include "osys/osys.hpp"
 
+#include <array>
 #include <cmath>
 #include <iostream>
+#include <optional>
 #include <string_view>
 
 namespace {
@@ -16,6 +18,25 @@ bool expect(bool condition, std::string_view message) {
 
 bool near(double lhs, double rhs, double tolerance) {
     return std::abs(lhs - rhs) <= tolerance;
+}
+
+bool near_vec(const osys::Vec3 lhs, const osys::Vec3 rhs, const double tolerance) {
+    return near(lhs.x, rhs.x, tolerance)
+        && near(lhs.y, rhs.y, tolerance)
+        && near(lhs.z, rhs.z, tolerance);
+}
+
+std::optional<osys::Vec3> point_at_z(const osys::Ray& ray, const double z_mm) {
+    if (near(ray.direction.z, 0.0, 1.0e-14)) {
+        return std::nullopt;
+    }
+
+    const double t = (z_mm - ray.origin_mm.z) / ray.direction.z;
+    if (!std::isfinite(t)) {
+        return std::nullopt;
+    }
+
+    return ray.origin_mm + t * ray.direction;
 }
 
 bool traces_plane_parallel_plate() {
@@ -146,6 +167,61 @@ bool copies_and_traces_fixed_optical_presets() {
     return ok;
 }
 
+bool reverse_trace_round_trips_fixed_optical_presets() {
+    bool ok = true;
+    constexpr std::array<double, 3> wavelengths_nm{486.1327, 587.5618, 656.2725};
+
+    for (const osys::OpticalPresetId id : osys::optical_preset_ids) {
+        const std::span<const osys::OpticalSurfaceSpec> specs = osys::optical_preset_surfaces(id);
+        const osys::OpticalSystem system = osys::optical_system(id);
+        const double world_z_mm = specs.front().vertex_z_mm - 20.0;
+        const double image_z_mm = specs.back().vertex_z_mm + 20.0;
+        const double off_axis_y_mm = 0.04 * specs.front().aperture_radius_mm;
+        const std::array<double, 2> ray_heights_mm{0.0, off_axis_y_mm};
+
+        for (const double wavelength_nm : wavelengths_nm) {
+            for (const double ray_height_mm : ray_heights_mm) {
+                const osys::Ray forward_input{
+                    .origin_mm = {0.0, ray_height_mm, world_z_mm},
+                    .direction = {0.0, 0.0, 1.0},
+                    .wavelength_nm = wavelength_nm,
+                };
+                const osys::TraceResult forward = osys::trace(system, forward_input);
+                ok = expect(forward.status == osys::TraceStatus::ok, "forward preset ray should trace") && ok;
+
+                const std::optional<osys::Vec3> image_point = point_at_z(forward.output_ray, image_z_mm);
+                ok = expect(image_point.has_value(), "forward output ray should reach image-side plane") && ok;
+                if (forward.status != osys::TraceStatus::ok || !image_point.has_value()) {
+                    continue;
+                }
+
+                const osys::Ray reverse_input{
+                    .origin_mm = *image_point,
+                    .direction = -forward.output_ray.direction,
+                    .wavelength_nm = wavelength_nm,
+                };
+                const osys::TraceResult reverse = osys::reverse_trace(system, reverse_input);
+                ok = expect(reverse.status == osys::TraceStatus::ok, "reverse preset ray should trace") && ok;
+
+                const std::optional<osys::Vec3> returned_world_point = point_at_z(reverse.output_ray, world_z_mm);
+                ok = expect(returned_world_point.has_value(), "reverse output ray should reach world-side plane") && ok;
+                if (reverse.status != osys::TraceStatus::ok || !returned_world_point.has_value()) {
+                    continue;
+                }
+
+                ok = expect(
+                    near_vec(*returned_world_point, forward_input.origin_mm, 1.0e-6),
+                    "reverse ray should return to the forward input point") && ok;
+                ok = expect(
+                    near_vec(osys::normalize(reverse.output_ray.direction), -osys::normalize(forward_input.direction), 1.0e-10),
+                    "reverse ray should leave opposite the forward input direction") && ok;
+            }
+        }
+    }
+
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -157,6 +233,7 @@ int main() {
     ok = bk7_dispersion_changes_index_with_nm_input() && ok;
     ok = abbe_medium_uses_v_number_dispersion() && ok;
     ok = copies_and_traces_fixed_optical_presets() && ok;
+    ok = reverse_trace_round_trips_fixed_optical_presets() && ok;
 
     return ok ? 0 : 1;
 }

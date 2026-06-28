@@ -4,7 +4,6 @@
 #include "osys/ray.hpp"
 #include "osys/sagitta.hpp"
 
-#include <algorithm>
 #include <cstddef>
 #include <cmath>
 #include <optional>
@@ -17,6 +16,7 @@ namespace osys {
 namespace detail {
 
 constexpr double k_ray_epsilon_mm = 1.0e-9;
+constexpr double k_surface_intersection_tolerance_mm = 1.0e-7;
 
 [[nodiscard]] inline bool finite_ray(const Ray& ray) {
     return std::isfinite(ray.origin_mm.x)
@@ -39,35 +39,6 @@ constexpr double k_ray_epsilon_mm = 1.0e-9;
         return std::nullopt;
     }
     return t;
-}
-
-[[nodiscard]] inline std::optional<double> smaller_forward_t(const double lhs, const double rhs) {
-    const std::optional<double> forward_lhs = forward_t(lhs);
-    const std::optional<double> forward_rhs = forward_t(rhs);
-    if (forward_lhs.has_value() && forward_rhs.has_value()) {
-        return std::min(*forward_lhs, *forward_rhs);
-    }
-    if (forward_lhs.has_value()) {
-        return forward_lhs;
-    }
-    return forward_rhs;
-}
-
-[[nodiscard]] inline std::optional<double> solve_quadratic_forward(const double a, const double b, const double c) {
-    if (near_zero(a)) {
-        if (near_zero(b)) {
-            return std::nullopt;
-        }
-        return forward_t(-c / b);
-    }
-
-    const double discriminant = b * b - 4.0 * a * c;
-    if (discriminant < 0.0) {
-        return std::nullopt;
-    }
-
-    const double root = std::sqrt(discriminant);
-    return smaller_forward_t((-b - root) / (2.0 * a), (-b + root) / (2.0 * a));
 }
 
 [[nodiscard]] inline std::optional<Vec3> refract(
@@ -119,10 +90,31 @@ struct OpticalSystem {
     void add_surface(const OpticalSurface &surface);
 
     [[nodiscard]] TraceResult trace(const Ray& input) const;
+    [[nodiscard]] TraceResult reverse_trace(const Ray& input) const;
 
     Medium initial_medium{};
     std::vector<OpticalSurface> surfaces;
 };
+
+namespace detail {
+
+[[nodiscard]] inline const Medium& medium_before_surface(const OpticalSystem& system, const std::size_t surface_index) {
+    if (surface_index == 0) {
+        return system.initial_medium;
+    }
+
+    return system.surfaces[surface_index - 1].medium_after;
+}
+
+[[nodiscard]] inline const Medium& image_side_medium(const OpticalSystem& system) {
+    if (system.surfaces.empty()) {
+        return system.initial_medium;
+    }
+
+    return system.surfaces.back().medium_after;
+}
+
+} // namespace detail
 
 inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
     system.surfaces.push_back(surface);
@@ -156,7 +148,49 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
                 + k * z0 * z0
                 - 2.0 * sagitta.radius_mm * z0;
 
-            return detail::solve_quadratic_forward(a, b, c);
+            std::optional<double> best_t;
+            const auto consider_root = [&](const double t) {
+                const std::optional<double> forward = detail::forward_t(t);
+                if (!forward.has_value()) {
+                    return;
+                }
+
+                const Vec3 point = ray.origin_mm + *forward * ray.direction;
+                const std::optional<double> expected_z = detail::conic_sagitta(
+                    detail::radial_distance(point),
+                    sagitta.radius_mm,
+                    sagitta.conic_constant);
+                if (!expected_z.has_value()) {
+                    return;
+                }
+
+                const double local_z = point.z - surface.vertex_z_mm;
+                if (std::abs(local_z - *expected_z) > detail::k_surface_intersection_tolerance_mm) {
+                    return;
+                }
+
+                if (!best_t.has_value() || *forward < *best_t) {
+                    best_t = forward;
+                }
+            };
+
+            if (detail::near_zero(a)) {
+                if (detail::near_zero(b)) {
+                    return std::nullopt;
+                }
+                consider_root(-c / b);
+            } else {
+                const double discriminant = b * b - 4.0 * a * c;
+                if (discriminant < 0.0) {
+                    return std::nullopt;
+                }
+
+                const double root = std::sqrt(discriminant);
+                consider_root((-b - root) / (2.0 * a));
+                consider_root((-b + root) / (2.0 * a));
+            }
+
+            return best_t;
         }
     }, surface.shape.model);
 }
@@ -183,6 +217,43 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
     }, surface.shape.model);
 }
 
+namespace detail {
+
+[[nodiscard]] inline TraceStatus trace_surface(
+    Ray& ray,
+    Medium& current_medium,
+    const OpticalSurface& surface,
+    const Medium& next_medium) {
+    const std::optional<double> hit_t = intersect_surface(ray, surface);
+    if (!hit_t.has_value()) {
+        return TraceStatus::no_intersection;
+    }
+
+    const Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
+    if (radial_distance(hit) > surface.aperture_radius_mm) {
+        return TraceStatus::missed_aperture;
+    }
+
+    const std::optional<Vec3> normal = surface_normal(hit, surface);
+    if (!normal.has_value()) {
+        return TraceStatus::no_intersection;
+    }
+
+    const double n_before = refractive_index(current_medium, ray.wavelength_nm);
+    const double n_after = refractive_index(next_medium, ray.wavelength_nm);
+    const std::optional<Vec3> refracted = refract(ray.direction, *normal, n_before, n_after);
+    if (!refracted.has_value()) {
+        return TraceStatus::total_internal_reflection;
+    }
+
+    ray.origin_mm = hit + k_ray_epsilon_mm * *refracted;
+    ray.direction = *refracted;
+    current_medium = next_medium;
+    return TraceStatus::ok;
+}
+
+} // namespace detail
+
 [[nodiscard]] inline TraceResult trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
@@ -193,34 +264,31 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
 
     for (std::size_t i = 0; i < system.surfaces.size(); ++i) {
         const OpticalSurface& surface = system.surfaces[i];
-        const Medium& before = current_medium;
-        const Medium& after = surface.medium_after;
-
-        const std::optional<double> hit_t = intersect_surface(ray, surface);
-        if (!hit_t.has_value()) {
-            return {.status = TraceStatus::no_intersection, .output_ray = ray, .surface_index = i};
+        const TraceStatus status = detail::trace_surface(ray, current_medium, surface, surface.medium_after);
+        if (status != TraceStatus::ok) {
+            return {.status = status, .output_ray = ray, .surface_index = i};
         }
+    }
 
-        const Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
-        if (detail::radial_distance(hit) > surface.aperture_radius_mm) {
-            return {.status = TraceStatus::missed_aperture, .output_ray = ray, .surface_index = i};
+    return {.status = TraceStatus::ok, .output_ray = ray, .surface_index = system.surfaces.size()};
+}
+
+[[nodiscard]] inline TraceResult reverse_trace(const OpticalSystem& system, const Ray& input) {
+    if (!detail::finite_ray(input)) {
+        return {.status = TraceStatus::invalid_ray, .output_ray = input};
+    }
+
+    Ray ray = input;
+    Medium current_medium = detail::image_side_medium(system);
+
+    for (std::size_t remaining = system.surfaces.size(); remaining > 0; --remaining) {
+        const std::size_t i = remaining - 1;
+        const OpticalSurface& surface = system.surfaces[i];
+        const Medium& next_medium = detail::medium_before_surface(system, i);
+        const TraceStatus status = detail::trace_surface(ray, current_medium, surface, next_medium);
+        if (status != TraceStatus::ok) {
+            return {.status = status, .output_ray = ray, .surface_index = i};
         }
-
-        const std::optional<Vec3> normal = surface_normal(hit, surface);
-        if (!normal.has_value()) {
-            return {.status = TraceStatus::no_intersection, .output_ray = ray, .surface_index = i};
-        }
-
-        const double n_before = refractive_index(before, ray.wavelength_nm);
-        const double n_after = refractive_index(after, ray.wavelength_nm);
-        const std::optional<Vec3> refracted = detail::refract(ray.direction, *normal, n_before, n_after);
-        if (!refracted.has_value()) {
-            return {.status = TraceStatus::total_internal_reflection, .output_ray = ray, .surface_index = i};
-        }
-
-        ray.origin_mm = hit + detail::k_ray_epsilon_mm * *refracted;
-        ray.direction = *refracted;
-        current_medium = surface.medium_after;
     }
 
     return {.status = TraceStatus::ok, .output_ray = ray, .surface_index = system.surfaces.size()};
@@ -232,6 +300,10 @@ inline void OpticalSystem::add_surface(const OpticalSurface &surface) {
 
 inline TraceResult OpticalSystem::trace(const Ray& input) const {
     return osys::trace(*this, input);
+}
+
+inline TraceResult OpticalSystem::reverse_trace(const Ray& input) const {
+    return osys::reverse_trace(*this, input);
 }
 
 } // namespace osys
