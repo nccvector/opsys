@@ -3,11 +3,14 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -19,6 +22,8 @@ constexpr int k_window_width = 1280;
 constexpr int k_window_height = 800;
 constexpr int k_min_window_width = 960;
 constexpr int k_min_window_height = 640;
+constexpr int k_export_width = 1280;
+constexpr int k_export_height = 720;
 
 enum class SurfaceKind {
     plane,
@@ -1145,6 +1150,120 @@ void draw_status_footer(const EditorState& state) {
     DrawText(text.c_str(), 30, GetScreenHeight() - 32, 14, Color{190, 199, 212, 255});
 }
 
+[[nodiscard]] std::string preset_slug(const std::string_view name) {
+    std::string slug;
+    slug.reserve(name.size());
+
+    bool previous_dash = false;
+    for (const unsigned char ch : name) {
+        if (std::isalnum(ch) != 0) {
+            slug.push_back(static_cast<char>(std::tolower(ch)));
+            previous_dash = false;
+            continue;
+        }
+
+        if (!previous_dash && !slug.empty()) {
+            slug.push_back('-');
+            previous_dash = true;
+        }
+    }
+
+    if (!slug.empty() && slug.back() == '-') {
+        slug.pop_back();
+    }
+
+    return slug.empty() ? "preset" : slug;
+}
+
+[[nodiscard]] EditorState export_state_for_preset(const osys::OpticalPresetId id) {
+    EditorState state{};
+    state.surfaces = surfaces_for_preset(id);
+    state.rays.preset = RayPreset::parallel_bundle;
+    state.rays.spectral = true;
+    state.rays.spectral_samples = 11;
+    state.rays.ray_count = 9;
+    state.selected_preset = id;
+    state.show_layers_panel = false;
+    state.show_rays_panel = false;
+    state.show_presets_panel = false;
+    state.show_view_panel = false;
+    state.show_grid = true;
+    state.show_aperture = true;
+    return state;
+}
+
+void draw_export_overlay(const EditorState& state) {
+    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
+    const std::string title{info.name};
+    const std::string meta = TextFormat(
+        "%.2f mm  f/%.2f  %zu surfaces",
+        info.focal_length_mm,
+        info.f_number,
+        state.surfaces.size());
+
+    const int title_width = MeasureText(title.c_str(), 24);
+    const int meta_width = MeasureText(meta.c_str(), 15);
+    const int panel_width = std::max(title_width, meta_width) + 36;
+    DrawRectangle(18, 18, panel_width, 70, Color{9, 11, 16, 218});
+    DrawRectangleLines(18, 18, panel_width, 70, Color{88, 96, 112, 180});
+    DrawText(title.c_str(), 36, 30, 24, Color{238, 241, 247, 255});
+    DrawText(meta.c_str(), 36, 62, 15, Color{180, 190, 204, 255});
+}
+
+[[nodiscard]] bool save_render_texture_png(const RenderTexture2D target, const std::filesystem::path& path) {
+    Image image = LoadImageFromTexture(target.texture);
+    ImageFlipVertical(&image);
+    const std::string filename = path.string();
+    const bool saved = ExportImage(image, filename.c_str());
+    UnloadImage(image);
+    return saved;
+}
+
+[[nodiscard]] bool export_preset_png(const osys::OpticalPresetId id, const RenderTexture2D target, const std::filesystem::path& output_dir) {
+    EditorState state = export_state_for_preset(id);
+    const osys::OpticalPresetInfo& info = osys::optical_preset_info(id);
+    const std::filesystem::path output_path = output_dir / (preset_slug(info.name) + ".png");
+
+    BeginDrawing();
+    BeginTextureMode(target);
+    draw_canvas(state);
+    draw_export_overlay(state);
+    EndTextureMode();
+    EndDrawing();
+
+    if (!save_render_texture_png(target, output_path)) {
+        std::fprintf(stderr, "failed to export %s\n", output_path.string().c_str());
+        return false;
+    }
+
+    std::printf("%s\n", output_path.string().c_str());
+    return true;
+}
+
+[[nodiscard]] bool export_all_preset_pngs(const std::string_view output_dir_name) {
+    const std::filesystem::path output_dir{std::string(output_dir_name)};
+    std::error_code error;
+    std::filesystem::create_directories(output_dir, error);
+    if (error) {
+        std::fprintf(stderr, "failed to create %s: %s\n", output_dir.string().c_str(), error.message().c_str());
+        return false;
+    }
+
+    SetTraceLogLevel(LOG_WARNING);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
+    InitWindow(k_export_width, k_export_height, "osys preset export");
+
+    RenderTexture2D target = LoadRenderTexture(k_export_width, k_export_height);
+    bool ok = true;
+    for (const osys::OpticalPresetId id : osys::optical_preset_ids) {
+        ok = export_preset_png(id, target, output_dir) && ok;
+    }
+
+    UnloadRenderTexture(target);
+    CloseWindow();
+    return ok;
+}
+
 void draw_mouse_debug(const Vector2 ui_mouse) {
     const Vector2 raw = GetMousePosition();
     const Vector2 dpi = GetWindowScaleDPI();
@@ -1208,7 +1327,11 @@ void draw_editor(EditorState& state) {
 
 } // namespace
 
-int main() {
+int main(const int argc, char** argv) {
+    if (argc == 3 && std::string_view{argv[1]} == "--export-presets") {
+        return export_all_preset_pngs(argv[2]) ? 0 : 1;
+    }
+
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(k_window_width, k_window_height, "osys editor");
     SetWindowMinSize(k_min_window_width, k_min_window_height);
