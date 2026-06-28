@@ -20,6 +20,7 @@ target_sources(osys
         include/osys/geometry.hpp
         include/osys/osys.hpp
         include/osys/medium.hpp
+        include/osys/presets.hpp
         include/osys/optical_system.hpp
         include/osys/ray.hpp
         include/osys/sagitta.hpp)

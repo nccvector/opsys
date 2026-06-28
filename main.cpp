@@ -3,19 +3,7 @@
 #include <iostream>
 
 int main() {
-    osys::OpticalSystem system{osys::air_medium};
-    osys::add_surface(system, osys::OpticalSurface{
-        .vertex_z_mm = 0.0,
-        .aperture_radius_mm = 12.5,
-        .medium_after = osys::n_bk7_medium,
-        .shape = osys::SagittaSurface{osys::ConicSagitta{.radius_mm = 50.0}},
-    });
-    osys::add_surface(system, osys::OpticalSurface{
-        .vertex_z_mm = 5.0,
-        .aperture_radius_mm = 12.5,
-        .medium_after = osys::air_medium,
-        .shape = osys::SagittaSurface{osys::ConicSagitta{.radius_mm = -50.0}},
-    });
+    osys::OpticalSystem system = osys::optical_system(osys::OpticalPresetId::double_gauss_50mm_f2);
 
     constexpr osys::Ray input{
         .origin_mm = {0.0, 5.0, -20.0},

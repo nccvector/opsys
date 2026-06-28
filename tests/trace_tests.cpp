@@ -115,6 +115,37 @@ bool bk7_dispersion_changes_index_with_nm_input() {
     return expect(blue > red, "BK7 should have higher index at shorter wavelength");
 }
 
+bool abbe_medium_uses_v_number_dispersion() {
+    const osys::Medium medium{osys::AbbeVd{.nd = 1.5168, .vd = 64.1}};
+    const double blue = osys::refractive_index(medium, 486.1327);
+    const double yellow = osys::refractive_index(medium, 587.5618);
+    const double red = osys::refractive_index(medium, 656.2725);
+
+    return expect(blue > yellow, "Abbe medium should bend blue more than yellow")
+        && expect(yellow > red, "Abbe medium should bend yellow more than red")
+        && expect(near(yellow, 1.5168, 1.0e-6), "Abbe medium should match nd at the d line");
+}
+
+bool copies_and_traces_fixed_optical_presets() {
+    bool ok = true;
+    for (const osys::OpticalPresetId id : osys::optical_preset_ids) {
+        const std::span<const osys::OpticalSurfaceSpec> specs = osys::optical_preset_surfaces(id);
+        const osys::OpticalSystem system = osys::optical_system(id);
+        ok = expect(!specs.empty(), "preset surface table should not be empty") && ok;
+        ok = expect(system.surfaces.size() == specs.size(), "preset copy should preserve surface count") && ok;
+
+        const osys::Ray ray{
+            .origin_mm = {0.0, 0.0, specs.front().vertex_z_mm - 20.0},
+            .direction = {0.0, 0.0, 1.0},
+            .wavelength_nm = 550.0,
+        };
+        const osys::TraceResult result = osys::trace(system, ray);
+        ok = expect(result.status == osys::TraceStatus::ok, "center ray should trace through preset") && ok;
+    }
+
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -124,6 +155,8 @@ int main() {
     ok = traces_spherical_surface() && ok;
     ok = traces_paraboloid_surface() && ok;
     ok = bk7_dispersion_changes_index_with_nm_input() && ok;
+    ok = abbe_medium_uses_v_number_dispersion() && ok;
+    ok = copies_and_traces_fixed_optical_presets() && ok;
 
     return ok ? 0 : 1;
 }

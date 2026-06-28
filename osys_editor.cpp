@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -17,12 +19,6 @@ constexpr int k_window_width = 1280;
 constexpr int k_window_height = 800;
 constexpr int k_min_window_width = 960;
 constexpr int k_min_window_height = 640;
-
-enum class MediumId {
-    air,
-    bk7,
-    dense,
-};
 
 enum class SurfaceKind {
     plane,
@@ -41,7 +37,9 @@ struct SurfaceEdit {
     bool expanded{true};
     double vertex_z_mm{};
     double aperture_radius_mm{12.5};
-    MediumId medium_after{MediumId::bk7};
+    osys::Medium medium_after{osys::n_bk7_medium};
+    std::string medium_name_after{"N-BK7"};
+    int medium_catalog_index{1};
     SurfaceKind kind{SurfaceKind::conic};
     double radius_mm{50.0};
     double conic_constant{};
@@ -64,8 +62,10 @@ struct RayControls {
 struct EditorState {
     std::vector<SurfaceEdit> surfaces;
     RayControls rays;
+    osys::OpticalPresetId selected_preset{osys::OpticalPresetId::double_gauss_50mm_f2};
     bool show_layers_panel{true};
     bool show_rays_panel{true};
+    bool show_presets_panel{true};
     bool show_view_panel{false};
     bool show_grid{true};
     bool show_aperture{true};
@@ -139,19 +139,6 @@ struct PanelCursor {
     return GetMousePosition();
 }
 
-[[nodiscard]] const char* medium_name(const MediumId id) {
-    switch (id) {
-        case MediumId::air:
-            return "Air";
-        case MediumId::bk7:
-            return "N-BK7";
-        case MediumId::dense:
-            return "Dense";
-    }
-
-    return "Unknown";
-}
-
 [[nodiscard]] const char* surface_kind_name(const SurfaceKind kind) {
     switch (kind) {
         case SurfaceKind::plane:
@@ -180,30 +167,35 @@ struct PanelCursor {
     return "Unknown";
 }
 
-[[nodiscard]] osys::Medium to_medium(const MediumId id) {
-    switch (id) {
-        case MediumId::air:
-            return osys::air_medium;
-        case MediumId::bk7:
-            return osys::n_bk7_medium;
-        case MediumId::dense:
-            return osys::dense_medium;
-    }
-
-    return osys::air_medium;
+[[nodiscard]] bool is_air_medium(const osys::Medium& medium) {
+    return std::abs(osys::refractive_index(medium, 550.0) - 1.0) < 1.0e-6;
 }
 
-[[nodiscard]] Color medium_color(const MediumId id, const unsigned char alpha) {
-    switch (id) {
-        case MediumId::air:
-            return Color{120, 132, 146, alpha};
-        case MediumId::bk7:
-            return Color{92, 176, 255, alpha};
-        case MediumId::dense:
-            return Color{255, 183, 92, alpha};
+[[nodiscard]] Color medium_color(const osys::Medium& medium, const unsigned char alpha) {
+    const double n = osys::refractive_index(medium, 550.0);
+    if (n < 1.01) {
+        return Color{120, 132, 146, alpha};
+    }
+    if (n < 1.56) {
+        return Color{92, 176, 255, alpha};
+    }
+    if (n < 1.68) {
+        return Color{96, 214, 188, alpha};
+    }
+    if (n < 1.78) {
+        return Color{255, 183, 92, alpha};
     }
 
-    return Color{160, 160, 160, alpha};
+    return Color{226, 112, 168, alpha};
+}
+
+void set_surface_medium_from_catalog(SurfaceEdit& surface, const int catalog_index) {
+    const int count = static_cast<int>(osys::medium_catalog_ids.size());
+    const int index = (catalog_index % count + count) % count;
+    const osys::MediumId id = osys::medium_catalog_ids[static_cast<std::size_t>(index)];
+    surface.medium_after = osys::medium(id);
+    surface.medium_name_after = std::string(osys::medium_name(id));
+    surface.medium_catalog_index = index;
 }
 
 [[nodiscard]] osys::SagittaSurface to_sagitta_surface(const SurfaceEdit& edit) {
@@ -221,7 +213,7 @@ struct PanelCursor {
     return osys::OpticalSurface{
         .vertex_z_mm = edit.vertex_z_mm,
         .aperture_radius_mm = edit.aperture_radius_mm,
-        .medium_after = to_medium(edit.medium_after),
+        .medium_after = edit.medium_after,
         .shape = to_sagitta_surface(edit),
     };
 }
@@ -237,27 +229,55 @@ struct PanelCursor {
     return system;
 }
 
-[[nodiscard]] std::vector<SurfaceEdit> default_surfaces() {
-    return {
-        SurfaceEdit{
-            .expanded = true,
-            .vertex_z_mm = 0.0,
-            .aperture_radius_mm = 12.5,
-            .medium_after = MediumId::bk7,
-            .kind = SurfaceKind::conic,
-            .radius_mm = 50.0,
-            .conic_constant = 0.0,
-        },
-        SurfaceEdit{
-            .expanded = true,
-            .vertex_z_mm = 5.0,
-            .aperture_radius_mm = 12.5,
-            .medium_after = MediumId::air,
-            .kind = SurfaceKind::conic,
-            .radius_mm = -50.0,
-            .conic_constant = 0.0,
-        },
+[[nodiscard]] SurfaceEdit surface_edit_from_spec(const osys::OpticalSurfaceSpec& spec) {
+    SurfaceEdit edit{
+        .expanded = false,
+        .vertex_z_mm = spec.vertex_z_mm,
+        .aperture_radius_mm = spec.aperture_radius_mm,
+        .medium_after = spec.medium_after,
+        .medium_name_after = std::string(spec.medium_name_after),
+        .medium_catalog_index = -1,
+        .kind = SurfaceKind::plane,
+        .radius_mm = 50.0,
+        .conic_constant = 0.0,
     };
+
+    if (std::holds_alternative<osys::ConicSagitta>(spec.shape.model)) {
+        const osys::ConicSagitta conic = std::get<osys::ConicSagitta>(spec.shape.model);
+        edit.kind = SurfaceKind::conic;
+        edit.radius_mm = conic.radius_mm;
+        edit.conic_constant = conic.conic_constant;
+    }
+
+    return edit;
+}
+
+[[nodiscard]] std::vector<SurfaceEdit> surfaces_for_preset(const osys::OpticalPresetId id) {
+    const std::span<const osys::OpticalSurfaceSpec> specs = osys::optical_preset_surfaces(id);
+    std::vector<SurfaceEdit> edits;
+    edits.reserve(specs.size());
+    for (const osys::OpticalSurfaceSpec& spec : specs) {
+        edits.push_back(surface_edit_from_spec(spec));
+    }
+    return edits;
+}
+
+[[nodiscard]] std::vector<SurfaceEdit> default_surfaces() {
+    return surfaces_for_preset(osys::OpticalPresetId::double_gauss_50mm_f2);
+}
+
+void load_optical_preset(EditorState& state, const osys::OpticalPresetId id) {
+    state.selected_preset = id;
+    state.surfaces = surfaces_for_preset(id);
+    state.active_control = 0;
+}
+
+void cycle_optical_preset(EditorState& state, const bool forward) {
+    load_optical_preset(
+        state,
+        forward
+            ? osys::next_optical_preset_id(state.selected_preset)
+            : osys::previous_optical_preset_id(state.selected_preset));
 }
 
 [[nodiscard]] double max_aperture_radius(const std::vector<SurfaceEdit>& surfaces) {
@@ -650,23 +670,13 @@ bool ui_panel_close_button(UiFrame& ui, const Rectangle panel) {
     return ui_button(ui, Rectangle{panel.x + panel.width - 38.0f, panel.y + 8.0f, 24.0f, 24.0f}, "x");
 }
 
-bool ui_cycle_medium(UiFrame& ui, const Rectangle rect, MediumId& value) {
-    if (!ui_button(ui, rect, medium_name(value))) {
+bool ui_cycle_medium(UiFrame& ui, const Rectangle rect, SurfaceEdit& surface) {
+    if (!ui_button(ui, rect, surface.medium_name_after.c_str())) {
         return false;
     }
 
-    switch (value) {
-        case MediumId::air:
-            value = MediumId::bk7;
-            break;
-        case MediumId::bk7:
-            value = MediumId::dense;
-            break;
-        case MediumId::dense:
-            value = MediumId::air;
-            break;
-    }
-
+    const int next = surface.medium_catalog_index < 0 ? 0 : surface.medium_catalog_index + 1;
+    set_surface_medium_from_catalog(surface, next);
     return true;
 }
 
@@ -828,7 +838,7 @@ void draw_lens_medium_regions(const View2D& view, const std::vector<SurfaceEdit>
     for (std::size_t i = 0; i + 1 < surfaces.size(); ++i) {
         const SurfaceEdit& left = surfaces[i];
         const SurfaceEdit& right = surfaces[i + 1];
-        if (left.medium_after == MediumId::air) {
+        if (is_air_medium(left.medium_after)) {
             continue;
         }
 
@@ -919,18 +929,17 @@ void draw_canvas(const EditorState& state) {
 void add_surface_after_last(std::vector<SurfaceEdit>& surfaces) {
     const double next_z = surfaces.empty() ? 0.0 : surfaces.back().vertex_z_mm + 5.0;
     const double aperture = surfaces.empty() ? 12.5 : surfaces.back().aperture_radius_mm;
-    const MediumId medium = surfaces.empty() || surfaces.back().medium_after != MediumId::air ? MediumId::air : MediumId::bk7;
     const double radius = surfaces.empty() ? 50.0 : -surfaces.back().radius_mm;
-
-    surfaces.push_back(SurfaceEdit{
+    SurfaceEdit surface{
         .expanded = true,
         .vertex_z_mm = next_z,
         .aperture_radius_mm = aperture,
-        .medium_after = medium,
         .kind = SurfaceKind::conic,
         .radius_mm = near_zero(radius) ? 50.0 : radius,
         .conic_constant = 0.0,
-    });
+    };
+    set_surface_medium_from_catalog(surface, surfaces.empty() || !is_air_medium(surfaces.back().medium_after) ? 0 : 1);
+    surfaces.push_back(surface);
 }
 
 void draw_layers_panel(UiFrame& ui, EditorState& state) {
@@ -961,18 +970,18 @@ void draw_layers_panel(UiFrame& ui, EditorState& state) {
 
     for (std::size_t i = 0; i < state.surfaces.size(); ++i) {
         SurfaceEdit& surface = state.surfaces[i];
-        const Rectangle row = row_rect(cursor, 32.0f, 5.0f);
+        const Rectangle row = row_rect(cursor, 28.0f, 3.0f);
         DrawRectangleRounded(row, 0.08f, 5, Color{34, 39, 49, 240});
 
         const std::string title = std::string(surface.expanded ? "v " : "> ") + "Surface " + std::to_string(i);
-        if (ui_button(ui, Rectangle{row.x + 6.0f, row.y + 4.0f, 138.0f, 24.0f}, title.c_str())) {
+        if (ui_button(ui, Rectangle{row.x + 6.0f, row.y + 3.0f, 138.0f, 22.0f}, title.c_str())) {
             surface.expanded = !surface.expanded;
         }
 
         const std::string z_text = TextFormat("z %.2f", surface.vertex_z_mm);
-        DrawText(z_text.c_str(), static_cast<int>(row.x + 154.0f), static_cast<int>(row.y + 9.0f), 13, Color{190, 199, 212, 255});
+        DrawText(z_text.c_str(), static_cast<int>(row.x + 154.0f), static_cast<int>(row.y + 7.0f), 13, Color{190, 199, 212, 255});
 
-        if (ui_button(ui, Rectangle{row.x + row.width - 34.0f, row.y + 4.0f, 28.0f, 24.0f}, "x")) {
+        if (ui_button(ui, Rectangle{row.x + row.width - 34.0f, row.y + 3.0f, 28.0f, 22.0f}, "x")) {
             state.surfaces.erase(state.surfaces.begin() + static_cast<std::ptrdiff_t>(i));
             break;
         }
@@ -987,13 +996,14 @@ void draw_layers_panel(UiFrame& ui, EditorState& state) {
 
         const Rectangle medium_row = row_rect(cursor, 28.0f);
         DrawText("Medium after", static_cast<int>(medium_row.x), static_cast<int>(medium_row.y + 7.0f), 14, Color{177, 185, 198, 255});
-        ui_cycle_medium(ui, Rectangle{medium_row.x + 112.0f, medium_row.y, medium_row.width - 112.0f, medium_row.height}, surface.medium_after);
+        ui_cycle_medium(ui, Rectangle{medium_row.x + 112.0f, medium_row.y, medium_row.width - 112.0f, medium_row.height}, surface);
 
         ui_slider_double(ui, row_rect(cursor, 44.0f), "vertex z mm", surface.vertex_z_mm, -60.0, 120.0);
         ui_slider_double(ui, row_rect(cursor, 44.0f), "aperture radius mm", surface.aperture_radius_mm, 1.0, 35.0);
 
         if (surface.kind == SurfaceKind::conic) {
-            ui_slider_double(ui, row_rect(cursor, 44.0f), "radius mm", surface.radius_mm, -160.0, 160.0);
+            const double radius_limit = std::max(160.0, std::ceil(std::abs(surface.radius_mm) / 50.0) * 50.0);
+            ui_slider_double(ui, row_rect(cursor, 44.0f), "radius mm", surface.radius_mm, -radius_limit, radius_limit);
             if (std::abs(surface.radius_mm) < 1.0) {
                 surface.radius_mm = surface.radius_mm < 0.0 ? -1.0 : 1.0;
             }
@@ -1052,8 +1062,39 @@ void draw_rays_panel(UiFrame& ui, EditorState& state) {
     }
 }
 
+void draw_presets_panel(UiFrame& ui, EditorState& state) {
+    const Rectangle panel{18.0f, 58.0f, 390.0f, 158.0f};
+    draw_panel_background(panel, "Presets");
+    if (ui_panel_close_button(ui, panel)) {
+        state.show_presets_panel = false;
+        return;
+    }
+
+    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
+    PanelCursor cursor{panel.x + 14.0f, panel.y + 44.0f, panel.width - 28.0f};
+
+    const Rectangle name_row = row_rect(cursor, 34.0f);
+    DrawText(info.name.data(), static_cast<int>(name_row.x), static_cast<int>(name_row.y + 8.0f), 15, Color{232, 236, 242, 255});
+
+    const Rectangle meta_row = row_rect(cursor, 20.0f);
+    const std::string meta = TextFormat("%.2f mm  f/%.2f  %zu surfaces", info.focal_length_mm, info.f_number, state.surfaces.size());
+    DrawText(meta.c_str(), static_cast<int>(meta_row.x), static_cast<int>(meta_row.y + 2.0f), 14, Color{177, 185, 198, 255});
+
+    const Rectangle action_row = row_rect(cursor, 30.0f);
+    if (ui_button(ui, Rectangle{action_row.x, action_row.y, 84.0f, action_row.height}, "Prev")) {
+        cycle_optical_preset(state, false);
+    }
+    if (ui_button(ui, Rectangle{action_row.x + 92.0f, action_row.y, 84.0f, action_row.height}, "Next")) {
+        cycle_optical_preset(state, true);
+    }
+    if (ui_button(ui, Rectangle{action_row.x + 184.0f, action_row.y, 94.0f, action_row.height}, "Reload")) {
+        load_optical_preset(state, state.selected_preset);
+    }
+}
+
 void draw_view_panel(UiFrame& ui, EditorState& state) {
-    const Rectangle panel{18.0f, 58.0f, 306.0f, 232.0f};
+    const float panel_y = state.show_presets_panel ? 232.0f : 58.0f;
+    const Rectangle panel{18.0f, panel_y, 306.0f, 232.0f};
     draw_panel_background(panel, "View");
     if (ui_panel_close_button(ui, panel)) {
         state.show_view_panel = false;
@@ -1076,24 +1117,27 @@ void draw_view_panel(UiFrame& ui, EditorState& state) {
 }
 
 void draw_toolbar(UiFrame& ui, EditorState& state) {
-    const Rectangle bar{18.0f, 14.0f, 474.0f, 34.0f};
+    const Rectangle bar{18.0f, 14.0f, 572.0f, 34.0f};
     DrawRectangleRounded(bar, 0.25f, 8, Color{22, 25, 31, 232});
     DrawRectangleRoundedLines(bar, 0.25f, 8, Color{88, 96, 112, 160});
 
     ui_toggle(ui, Rectangle{bar.x + 8.0f, bar.y + 5.0f, 94.0f, 24.0f}, "Layers", state.show_layers_panel);
     ui_toggle(ui, Rectangle{bar.x + 110.0f, bar.y + 5.0f, 78.0f, 24.0f}, "Rays", state.show_rays_panel);
-    ui_toggle(ui, Rectangle{bar.x + 196.0f, bar.y + 5.0f, 78.0f, 24.0f}, "View", state.show_view_panel);
-    ui_toggle(ui, Rectangle{bar.x + 282.0f, bar.y + 5.0f, 78.0f, 24.0f}, "Grid", state.show_grid);
+    ui_toggle(ui, Rectangle{bar.x + 196.0f, bar.y + 5.0f, 94.0f, 24.0f}, "Presets", state.show_presets_panel);
+    ui_toggle(ui, Rectangle{bar.x + 298.0f, bar.y + 5.0f, 78.0f, 24.0f}, "View", state.show_view_panel);
+    ui_toggle(ui, Rectangle{bar.x + 384.0f, bar.y + 5.0f, 78.0f, 24.0f}, "Grid", state.show_grid);
 
-    if (ui_button(ui, Rectangle{bar.x + 368.0f, bar.y + 5.0f, 94.0f, 24.0f}, "Reset lens")) {
-        state.surfaces = default_surfaces();
+    if (ui_button(ui, Rectangle{bar.x + 470.0f, bar.y + 5.0f, 94.0f, 24.0f}, "Reload")) {
+        load_optical_preset(state, state.selected_preset);
     }
 }
 
 void draw_status_footer(const EditorState& state) {
     const std::vector<SpectralRay> rays = spectral_rays_for_controls(state);
+    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
     const std::string text = TextFormat(
-        "%zu surfaces  |  %zu traced rays  |  %s",
+        "%s  |  %zu surfaces  |  %zu traced rays  |  %s",
+        info.name.data(),
         state.surfaces.size(),
         rays.size(),
         state.rays.spectral ? "additive spectral blend" : "single wavelength");
@@ -1138,6 +1182,10 @@ void draw_editor(EditorState& state) {
     };
 
     draw_toolbar(ui, state);
+
+    if (state.show_presets_panel) {
+        draw_presets_panel(ui, state);
+    }
 
     if (state.show_layers_panel) {
         draw_layers_panel(ui, state);

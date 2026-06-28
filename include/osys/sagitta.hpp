@@ -66,9 +66,9 @@ struct ConicSagitta {
 };
 
 struct SagittaSurface {
-    SagittaSurface() : model(PlaneSagitta{}) {}
-    explicit SagittaSurface(PlaneSagitta plane) : model(plane) {}
-    explicit SagittaSurface(ConicSagitta conic) : model(conic) {}
+    constexpr SagittaSurface() : model(PlaneSagitta{}) {}
+    explicit constexpr SagittaSurface(PlaneSagitta plane) : model(plane) {}
+    explicit constexpr SagittaSurface(ConicSagitta conic) : model(conic) {}
 
     [[nodiscard]] std::optional<double> sagitta_mm(double radius_mm) const;
 
