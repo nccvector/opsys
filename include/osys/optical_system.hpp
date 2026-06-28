@@ -1,8 +1,8 @@
 #pragma once
 
-#include "lenses/medium.hpp"
-#include "lenses/ray.hpp"
-#include "lenses/sagitta.hpp"
+#include "osys/medium.hpp"
+#include "osys/ray.hpp"
+#include "osys/sagitta.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace lenses {
+namespace osys {
 
 namespace detail {
 
@@ -227,11 +227,11 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
 }
 
 inline void OpticalSystem::add_surface(const OpticalSurface &surface) {
-    lenses::add_surface(*this, surface);
+    osys::add_surface(*this, surface);
 }
 
 inline TraceResult OpticalSystem::trace(const Ray& input) const {
-    return lenses::trace(*this, input);
+    return osys::trace(*this, input);
 }
 
-} // namespace lenses
+} // namespace osys

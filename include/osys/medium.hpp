@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace lenses {
+namespace osys {
 
 struct ConstantIndex {
     double n{};
@@ -49,7 +49,7 @@ struct Medium {
 }
 
 inline double Medium::refractive_index(double wavelength_nm) const {
-    return lenses::refractive_index(*this, wavelength_nm);
+    return osys::refractive_index(*this, wavelength_nm);
 }
 
 inline constexpr Medium air_medium{ConstantIndex{1.0}};
@@ -61,4 +61,4 @@ inline constexpr Medium n_bk7_medium{Sellmeier3{
 
 inline constexpr Medium dense_medium{ConstantIndex{1.5}};
 
-} // namespace lenses
+} // namespace osys

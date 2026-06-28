@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace lenses {
+namespace osys {
 
 struct Vec3 {
     double x{};
@@ -47,4 +47,4 @@ struct Vec3 {
     return value / len;
 }
 
-} // namespace lenses
+} // namespace osys

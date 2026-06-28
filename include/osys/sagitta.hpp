@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace lenses {
+namespace osys {
 
 namespace detail {
 
@@ -108,11 +108,11 @@ struct SagittaSurface {
 }
 
 inline std::optional<double> SagittaSurface::sagitta_mm(double radius_mm) const {
-    return lenses::sagitta_mm(*this, radius_mm);
+    return osys::sagitta_mm(*this, radius_mm);
 }
 
 inline std::optional<double> SagittaSurface::dsagitta_dr(double radius_mm) const {
-    return lenses::dsagitta_dr(*this, radius_mm);
+    return osys::dsagitta_dr(*this, radius_mm);
 }
 
-} // namespace lenses
+} // namespace osys

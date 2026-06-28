@@ -1,4 +1,4 @@
-#include "lenses/lenses.hpp"
+#include "osys/osys.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -19,98 +19,98 @@ bool near(double lhs, double rhs, double tolerance) {
 }
 
 bool traces_plane_parallel_plate() {
-    lenses::OpticalSystem system{lenses::air_medium};
-    lenses::add_surface(system, lenses::OpticalSurface{
+    osys::OpticalSystem system{osys::air_medium};
+    osys::add_surface(system, osys::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::dense_medium,
-        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
+        .medium_after = osys::dense_medium,
+        .shape = osys::SagittaSurface{osys::PlaneSagitta{}},
     });
-    lenses::add_surface(system, lenses::OpticalSurface{
+    osys::add_surface(system, osys::OpticalSurface{
         .vertex_z_mm = 5.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::air_medium,
-        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
+        .medium_after = osys::air_medium,
+        .shape = osys::SagittaSurface{osys::PlaneSagitta{}},
     });
 
-    const lenses::Ray ray{
+    const osys::Ray ray{
         .origin_mm = {0.0, 0.0, -1.0},
         .direction = {0.09950371902099893, 0.0, 0.9950371902099893},
         .wavelength_nm = 550.0,
     };
-    const lenses::TraceResult result = lenses::trace(system, ray);
+    const osys::TraceResult result = osys::trace(system, ray);
 
-    return expect(result.status == lenses::TraceStatus::ok, "plane plate should trace")
+    return expect(result.status == osys::TraceStatus::ok, "plane plate should trace")
         && expect(near(result.output_ray.direction.x, ray.direction.x, 1.0e-12), "parallel plate preserves outgoing x angle")
         && expect(near(result.output_ray.direction.z, ray.direction.z, 1.0e-12), "parallel plate preserves outgoing z angle");
 }
 
 bool rejects_aperture_miss() {
-    lenses::OpticalSystem system{lenses::air_medium};
-    lenses::add_surface(system, lenses::OpticalSurface{
+    osys::OpticalSystem system{osys::air_medium};
+    osys::add_surface(system, osys::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 1.0,
-        .medium_after = lenses::dense_medium,
-        .shape = lenses::SagittaSurface{lenses::PlaneSagitta{}},
+        .medium_after = osys::dense_medium,
+        .shape = osys::SagittaSurface{osys::PlaneSagitta{}},
     });
 
-    const lenses::Ray ray{
+    const osys::Ray ray{
         .origin_mm = {2.0, 0.0, -1.0},
         .direction = {0.0, 0.0, 1.0},
         .wavelength_nm = 550.0,
     };
-    const lenses::TraceResult result = lenses::trace(system, ray);
+    const osys::TraceResult result = osys::trace(system, ray);
 
-    return expect(result.status == lenses::TraceStatus::missed_aperture, "ray outside clear aperture should miss");
+    return expect(result.status == osys::TraceStatus::missed_aperture, "ray outside clear aperture should miss");
 }
 
 bool traces_spherical_surface() {
-    lenses::OpticalSystem system{lenses::air_medium};
-    lenses::add_surface(system, lenses::OpticalSurface{
+    osys::OpticalSystem system{osys::air_medium};
+    osys::add_surface(system, osys::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::dense_medium,
-        .shape = lenses::SagittaSurface{lenses::ConicSagitta{.radius_mm = 50.0}},
+        .medium_after = osys::dense_medium,
+        .shape = osys::SagittaSurface{osys::ConicSagitta{.radius_mm = 50.0}},
     });
 
-    const lenses::Ray ray{
+    const osys::Ray ray{
         .origin_mm = {0.0, 4.0, -20.0},
         .direction = {0.0, 0.0, 1.0},
         .wavelength_nm = 550.0,
     };
-    const lenses::TraceResult result = lenses::trace(system, ray);
+    const osys::TraceResult result = osys::trace(system, ray);
 
-    return expect(result.status == lenses::TraceStatus::ok, "spherical surface should trace")
+    return expect(result.status == osys::TraceStatus::ok, "spherical surface should trace")
         && expect(result.output_ray.direction.y < 0.0, "positive-radius spherical surface bends marginal ray toward axis");
 }
 
 bool traces_paraboloid_surface() {
-    lenses::OpticalSystem system{lenses::air_medium};
-    lenses::add_surface(system, lenses::OpticalSurface{
+    osys::OpticalSystem system{osys::air_medium};
+    osys::add_surface(system, osys::OpticalSurface{
         .vertex_z_mm = 0.0,
         .aperture_radius_mm = 10.0,
-        .medium_after = lenses::dense_medium,
-        .shape = lenses::SagittaSurface{lenses::ConicSagitta{
+        .medium_after = osys::dense_medium,
+        .shape = osys::SagittaSurface{osys::ConicSagitta{
             .radius_mm = 50.0,
             .conic_constant = -1.0,
         }},
     });
 
-    const lenses::Ray ray{
+    const osys::Ray ray{
         .origin_mm = {0.0, 4.0, -20.0},
         .direction = {0.0, 0.0, 1.0},
         .wavelength_nm = 550.0,
     };
-    const lenses::TraceResult result = lenses::trace(system, ray);
+    const osys::TraceResult result = osys::trace(system, ray);
 
-    return expect(result.status == lenses::TraceStatus::ok, "paraboloid surface should trace")
+    return expect(result.status == osys::TraceStatus::ok, "paraboloid surface should trace")
         && expect(result.output_ray.direction.y < 0.0, "positive-radius paraboloid bends marginal ray toward axis");
 }
 
 bool bk7_dispersion_changes_index_with_nm_input() {
-    const lenses::Medium bk7 = lenses::n_bk7_medium;
-    const double blue = lenses::refractive_index(bk7, 486.1);
-    const double red = lenses::refractive_index(bk7, 656.3);
+    const osys::Medium bk7 = osys::n_bk7_medium;
+    const double blue = osys::refractive_index(bk7, 486.1);
+    const double red = osys::refractive_index(bk7, 656.3);
 
     return expect(blue > red, "BK7 should have higher index at shorter wavelength");
 }

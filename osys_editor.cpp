@@ -1,4 +1,4 @@
-#include "lenses/lenses.hpp"
+#include "osys/osys.hpp"
 
 #include <raylib.h>
 
@@ -77,17 +77,17 @@ struct EditorState {
 };
 
 struct SourceRay {
-    lenses::Ray ray;
+    osys::Ray ray;
 };
 
 struct SpectralRay {
-    lenses::Ray ray;
+    osys::Ray ray;
     Color color{};
 };
 
 struct RayPath {
-    std::vector<lenses::Vec3> points;
-    lenses::TraceStatus status{lenses::TraceStatus::ok};
+    std::vector<osys::Vec3> points;
+    osys::TraceStatus status{osys::TraceStatus::ok};
 };
 
 struct WorldBounds {
@@ -180,17 +180,17 @@ struct PanelCursor {
     return "Unknown";
 }
 
-[[nodiscard]] lenses::Medium to_medium(const MediumId id) {
+[[nodiscard]] osys::Medium to_medium(const MediumId id) {
     switch (id) {
         case MediumId::air:
-            return lenses::air_medium;
+            return osys::air_medium;
         case MediumId::bk7:
-            return lenses::n_bk7_medium;
+            return osys::n_bk7_medium;
         case MediumId::dense:
-            return lenses::dense_medium;
+            return osys::dense_medium;
     }
 
-    return lenses::air_medium;
+    return osys::air_medium;
 }
 
 [[nodiscard]] Color medium_color(const MediumId id, const unsigned char alpha) {
@@ -206,19 +206,19 @@ struct PanelCursor {
     return Color{160, 160, 160, alpha};
 }
 
-[[nodiscard]] lenses::SagittaSurface to_sagitta_surface(const SurfaceEdit& edit) {
+[[nodiscard]] osys::SagittaSurface to_sagitta_surface(const SurfaceEdit& edit) {
     if (edit.kind == SurfaceKind::plane) {
-        return lenses::SagittaSurface{lenses::PlaneSagitta{}};
+        return osys::SagittaSurface{osys::PlaneSagitta{}};
     }
 
-    return lenses::SagittaSurface{lenses::ConicSagitta{
+    return osys::SagittaSurface{osys::ConicSagitta{
         .radius_mm = edit.radius_mm,
         .conic_constant = edit.conic_constant,
     }};
 }
 
-[[nodiscard]] lenses::OpticalSurface to_optical_surface(const SurfaceEdit& edit) {
-    return lenses::OpticalSurface{
+[[nodiscard]] osys::OpticalSurface to_optical_surface(const SurfaceEdit& edit) {
+    return osys::OpticalSurface{
         .vertex_z_mm = edit.vertex_z_mm,
         .aperture_radius_mm = edit.aperture_radius_mm,
         .medium_after = to_medium(edit.medium_after),
@@ -226,12 +226,12 @@ struct PanelCursor {
     };
 }
 
-[[nodiscard]] lenses::OpticalSystem to_optical_system(const std::vector<SurfaceEdit>& edits) {
-    lenses::OpticalSystem system{lenses::air_medium};
+[[nodiscard]] osys::OpticalSystem to_optical_system(const std::vector<SurfaceEdit>& edits) {
+    osys::OpticalSystem system{osys::air_medium};
     system.surfaces.reserve(edits.size());
 
     for (const SurfaceEdit& edit : edits) {
-        lenses::add_surface(system, to_optical_surface(edit));
+        osys::add_surface(system, to_optical_surface(edit));
     }
 
     return system;
@@ -323,15 +323,15 @@ struct PanelCursor {
     };
 }
 
-[[nodiscard]] Vector2 to_screen(const View2D& view, const lenses::Vec3 point) {
+[[nodiscard]] Vector2 to_screen(const View2D& view, const osys::Vec3 point) {
     return Vector2{
         .x = view.canvas.x + 0.5f * view.canvas.width + static_cast<float>((point.z - view.center_z_mm) * view.px_per_mm),
         .y = view.canvas.y + 0.5f * view.canvas.height - static_cast<float>((point.y - view.center_y_mm) * view.px_per_mm),
     };
 }
 
-[[nodiscard]] lenses::Vec3 normalize_or_forward(const lenses::Vec3 value) {
-    const double len = lenses::length(value);
+[[nodiscard]] osys::Vec3 normalize_or_forward(const osys::Vec3 value) {
+    const double len = osys::length(value);
     if (near_zero(len) || !std::isfinite(len)) {
         return {0.0, 0.0, 1.0};
     }
@@ -411,7 +411,7 @@ struct PanelCursor {
 
     switch (state.rays.preset) {
         case RayPreset::single_offset: {
-            source_rays.push_back(SourceRay{lenses::Ray{
+            source_rays.push_back(SourceRay{osys::Ray{
                 .origin_mm = {0.0, state.rays.single_offset_mm, start_z},
                 .direction = {0.0, 0.0, 1.0},
                 .wavelength_nm = state.rays.wavelength_nm,
@@ -425,7 +425,7 @@ struct PanelCursor {
             for (int i = 0; i < count; ++i) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double y = lerp_double(-0.82 * aperture, 0.82 * aperture, t);
-                source_rays.push_back(SourceRay{lenses::Ray{
+                source_rays.push_back(SourceRay{osys::Ray{
                     .origin_mm = {0.0, y, start_z},
                     .direction = {0.0, 0.0, 1.0},
                     .wavelength_nm = state.rays.wavelength_nm,
@@ -437,9 +437,9 @@ struct PanelCursor {
         case RayPreset::angled_center: {
             const double angle = deg_to_rad(state.rays.angle_deg);
             const double distance = first_z - start_z;
-            const lenses::Vec3 origin{0.0, -std::tan(angle) * distance, start_z};
-            const lenses::Vec3 target{0.0, 0.0, first_z};
-            source_rays.push_back(SourceRay{lenses::Ray{
+            const osys::Vec3 origin{0.0, -std::tan(angle) * distance, start_z};
+            const osys::Vec3 target{0.0, 0.0, first_z};
+            source_rays.push_back(SourceRay{osys::Ray{
                 .origin_mm = origin,
                 .direction = normalize_or_forward(target - origin),
                 .wavelength_nm = state.rays.wavelength_nm,
@@ -449,12 +449,12 @@ struct PanelCursor {
 
         case RayPreset::edge_pair: {
             const double y = clamp_double(state.rays.edge_fraction, 0.1, 0.98) * aperture;
-            source_rays.push_back(SourceRay{lenses::Ray{
+            source_rays.push_back(SourceRay{osys::Ray{
                 .origin_mm = {0.0, -y, start_z},
                 .direction = {0.0, 0.0, 1.0},
                 .wavelength_nm = state.rays.wavelength_nm,
             }});
-            source_rays.push_back(SourceRay{lenses::Ray{
+            source_rays.push_back(SourceRay{osys::Ray{
                 .origin_mm = {0.0, y, start_z},
                 .direction = {0.0, 0.0, 1.0},
                 .wavelength_nm = state.rays.wavelength_nm,
@@ -464,13 +464,13 @@ struct PanelCursor {
 
         case RayPreset::point_source: {
             const int count = clamp_int(state.rays.point_samples, 2, 25);
-            const lenses::Vec3 origin{0.0, state.rays.point_source_y_mm, state.rays.point_source_z_mm};
+            const osys::Vec3 origin{0.0, state.rays.point_source_y_mm, state.rays.point_source_z_mm};
             source_rays.reserve(static_cast<std::size_t>(count));
             for (int i = 0; i < count; ++i) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double target_y = lerp_double(-0.92 * aperture, 0.92 * aperture, t);
-                const lenses::Vec3 target{0.0, target_y, first_z};
-                source_rays.push_back(SourceRay{lenses::Ray{
+                const osys::Vec3 target{0.0, target_y, first_z};
+                source_rays.push_back(SourceRay{osys::Ray{
                     .origin_mm = origin,
                     .direction = normalize_or_forward(target - origin),
                     .wavelength_nm = state.rays.wavelength_nm,
@@ -491,7 +491,7 @@ struct PanelCursor {
     rays.reserve(sources.size() * wavelengths.size());
     for (const SourceRay& source : sources) {
         for (const double wavelength : wavelengths) {
-            lenses::Ray ray = source.ray;
+            osys::Ray ray = source.ray;
             ray.wavelength_nm = wavelength;
             rays.push_back(SpectralRay{
                 .ray = ray,
@@ -503,66 +503,66 @@ struct PanelCursor {
     return rays;
 }
 
-[[nodiscard]] std::optional<lenses::Vec3> refract_direction(
-    const lenses::Vec3 incident,
-    const lenses::Vec3 surface_normal,
+[[nodiscard]] std::optional<osys::Vec3> refract_direction(
+    const osys::Vec3 incident,
+    const osys::Vec3 surface_normal,
     const double n_incident,
     const double n_transmitted) {
-    lenses::Vec3 normal = lenses::normalize(surface_normal);
-    const lenses::Vec3 direction = lenses::normalize(incident);
+    osys::Vec3 normal = osys::normalize(surface_normal);
+    const osys::Vec3 direction = osys::normalize(incident);
 
-    if (lenses::dot(direction, normal) > 0.0) {
+    if (osys::dot(direction, normal) > 0.0) {
         normal = -normal;
     }
 
     const double eta = n_incident / n_transmitted;
-    const double cos_i = -lenses::dot(normal, direction);
+    const double cos_i = -osys::dot(normal, direction);
     const double k = 1.0 - eta * eta * (1.0 - cos_i * cos_i);
     if (k < 0.0) {
         return std::nullopt;
     }
 
-    return lenses::normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
+    return osys::normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
 }
 
 [[nodiscard]] RayPath trace_path(
-    const lenses::OpticalSystem& system,
-    const lenses::Ray& input,
+    const osys::OpticalSystem& system,
+    const osys::Ray& input,
     const double end_z_mm) {
     RayPath path{};
-    lenses::Ray ray = input;
+    osys::Ray ray = input;
     ray.direction = normalize_or_forward(ray.direction);
-    lenses::Medium current_medium = system.initial_medium;
+    osys::Medium current_medium = system.initial_medium;
     path.points.push_back(ray.origin_mm);
 
-    for (const lenses::OpticalSurface& surface : system.surfaces) {
-        const std::optional<double> hit_t = lenses::intersect_surface(ray, surface);
+    for (const osys::OpticalSurface& surface : system.surfaces) {
+        const std::optional<double> hit_t = osys::intersect_surface(ray, surface);
         if (!hit_t.has_value()) {
             const double fallback_t = std::abs(end_z_mm - ray.origin_mm.z) + 40.0;
             path.points.push_back(ray.origin_mm + fallback_t * ray.direction);
-            path.status = lenses::TraceStatus::no_intersection;
+            path.status = osys::TraceStatus::no_intersection;
             return path;
         }
 
-        const lenses::Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
+        const osys::Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
         path.points.push_back(hit);
 
         if (std::hypot(hit.x, hit.y) > surface.aperture_radius_mm) {
-            path.status = lenses::TraceStatus::missed_aperture;
+            path.status = osys::TraceStatus::missed_aperture;
             return path;
         }
 
-        const std::optional<lenses::Vec3> normal = lenses::surface_normal(hit, surface);
+        const std::optional<osys::Vec3> normal = osys::surface_normal(hit, surface);
         if (!normal.has_value()) {
-            path.status = lenses::TraceStatus::no_intersection;
+            path.status = osys::TraceStatus::no_intersection;
             return path;
         }
 
-        const double n_before = lenses::refractive_index(current_medium, ray.wavelength_nm);
-        const double n_after = lenses::refractive_index(surface.medium_after, ray.wavelength_nm);
-        const std::optional<lenses::Vec3> refracted = refract_direction(ray.direction, *normal, n_before, n_after);
+        const double n_before = osys::refractive_index(current_medium, ray.wavelength_nm);
+        const double n_after = osys::refractive_index(surface.medium_after, ray.wavelength_nm);
+        const std::optional<osys::Vec3> refracted = refract_direction(ray.direction, *normal, n_before, n_after);
         if (!refracted.has_value()) {
-            path.status = lenses::TraceStatus::total_internal_reflection;
+            path.status = osys::TraceStatus::total_internal_reflection;
             return path;
         }
 
@@ -580,7 +580,7 @@ struct PanelCursor {
     }
 
     path.points.push_back(ray.origin_mm + t * ray.direction);
-    path.status = lenses::TraceStatus::ok;
+    path.status = osys::TraceStatus::ok;
     return path;
 }
 
@@ -777,23 +777,23 @@ void draw_grid(const View2D& view) {
 
     for (int z_step = z_start; z_step <= z_end; ++z_step) {
         const double z = z_step * grid_mm;
-        const Vector2 a = to_screen(view, lenses::Vec3{0.0, bottom_y, z});
-        const Vector2 b = to_screen(view, lenses::Vec3{0.0, top_y, z});
+        const Vector2 a = to_screen(view, osys::Vec3{0.0, bottom_y, z});
+        const Vector2 b = to_screen(view, osys::Vec3{0.0, top_y, z});
         DrawLineV(a, b, z_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 
     for (int y_step = y_start; y_step <= y_end; ++y_step) {
         const double y = y_step * grid_mm;
-        const Vector2 a = to_screen(view, lenses::Vec3{0.0, y, left_z});
-        const Vector2 b = to_screen(view, lenses::Vec3{0.0, y, right_z});
+        const Vector2 a = to_screen(view, osys::Vec3{0.0, y, left_z});
+        const Vector2 b = to_screen(view, osys::Vec3{0.0, y, right_z});
         DrawLineV(a, b, y_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 }
 
-[[nodiscard]] lenses::Vec3 surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
-    const lenses::SagittaSurface surface = to_sagitta_surface(edit);
-    const std::optional<double> sagitta = lenses::sagitta_mm(surface, std::abs(y_mm));
-    return lenses::Vec3{
+[[nodiscard]] osys::Vec3 surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
+    const osys::SagittaSurface surface = to_sagitta_surface(edit);
+    const std::optional<double> sagitta = osys::sagitta_mm(surface, std::abs(y_mm));
+    return osys::Vec3{
         .x = 0.0,
         .y = y_mm,
         .z = edit.vertex_z_mm + sagitta.value_or(0.0),
@@ -809,7 +809,7 @@ void draw_surface_curve(const View2D& view, const SurfaceEdit& edit, const Color
     for (int i = 0; i <= samples; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(samples);
         const double y = lerp_double(-aperture, aperture, t);
-        const lenses::Vec3 point = surface_point_at_y(edit, y);
+        const osys::Vec3 point = surface_point_at_y(edit, y);
         const Vector2 screen = to_screen(view, point);
         if (has_previous) {
             DrawLineEx(previous, screen, 2.2f, color);
@@ -854,8 +854,8 @@ void draw_lens_medium_regions(const View2D& view, const std::vector<SurfaceEdit>
 
 void draw_aperture_lines(const View2D& view, const std::vector<SurfaceEdit>& surfaces) {
     for (const SurfaceEdit& surface : surfaces) {
-        const Vector2 top = to_screen(view, lenses::Vec3{0.0, surface.aperture_radius_mm, surface.vertex_z_mm});
-        const Vector2 bottom = to_screen(view, lenses::Vec3{0.0, -surface.aperture_radius_mm, surface.vertex_z_mm});
+        const Vector2 top = to_screen(view, osys::Vec3{0.0, surface.aperture_radius_mm, surface.vertex_z_mm});
+        const Vector2 bottom = to_screen(view, osys::Vec3{0.0, -surface.aperture_radius_mm, surface.vertex_z_mm});
         DrawCircleV(top, 3.0f, Color{214, 221, 232, 180});
         DrawCircleV(bottom, 3.0f, Color{214, 221, 232, 180});
     }
@@ -884,14 +884,14 @@ void draw_ray_path(const View2D& view, const RayPath& path, const Color color, c
         DrawLineEx(a, b, width, color);
     }
 
-    if (path.status != lenses::TraceStatus::ok) {
+    if (path.status != osys::TraceStatus::ok) {
         const Vector2 last = to_screen(view, path.points.back());
         DrawCircleLines(static_cast<int>(last.x), static_cast<int>(last.y), 5.0f, Color{255, 96, 96, 230});
     }
 }
 
 void draw_rays(const View2D& view, const EditorState& state) {
-    const lenses::OpticalSystem system = to_optical_system(state.surfaces);
+    const osys::OpticalSystem system = to_optical_system(state.surfaces);
     const std::vector<SpectralRay> rays = spectral_rays_for_controls(state);
     const double end_z = world_bounds(state).max_z;
 
@@ -1162,7 +1162,7 @@ void draw_editor(EditorState& state) {
 
 int main() {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(k_window_width, k_window_height, "lens editor");
+    InitWindow(k_window_width, k_window_height, "osys editor");
     SetWindowMinSize(k_min_window_width, k_min_window_height);
     SetTargetFPS(60);
 

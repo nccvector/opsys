@@ -1,8 +1,8 @@
 #pragma once
 
-#include "lenses/geometry.hpp"
+#include "osys/geometry.hpp"
 
-namespace lenses {
+namespace osys {
 
 struct Ray {
     Vec3 origin_mm{};
@@ -10,4 +10,4 @@ struct Ray {
     double wavelength_nm{};
 };
 
-} // namespace lenses
+} // namespace osys
