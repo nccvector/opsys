@@ -13,8 +13,10 @@ namespace {
 
 constexpr double k_pi = 3.14159265358979323846;
 constexpr double k_ray_epsilon_mm = 1.0e-7;
-constexpr int k_window_width = 1600;
-constexpr int k_window_height = 960;
+constexpr int k_window_width = 1280;
+constexpr int k_window_height = 800;
+constexpr int k_min_window_width = 960;
+constexpr int k_min_window_height = 640;
 
 enum class MediumId {
     air,
@@ -67,6 +69,7 @@ struct EditorState {
     bool show_view_panel{false};
     bool show_grid{true};
     bool show_aperture{true};
+    bool show_mouse_debug{false};
     double zoom{1.0};
     double pan_z_mm{};
     double pan_y_mm{};
@@ -130,6 +133,10 @@ struct PanelCursor {
 
 [[nodiscard]] bool near_zero(const double value) {
     return std::abs(value) < 1.0e-12;
+}
+
+[[nodiscard]] Vector2 ui_mouse_position() {
+    return GetMousePosition();
 }
 
 [[nodiscard]] const char* medium_name(const MediumId id) {
@@ -1075,11 +1082,38 @@ void draw_status_footer(const EditorState& state) {
     DrawText(text.c_str(), 30, GetScreenHeight() - 32, 14, Color{190, 199, 212, 255});
 }
 
+void draw_mouse_debug(const Vector2 ui_mouse) {
+    const Vector2 raw = GetMousePosition();
+    const Vector2 dpi = GetWindowScaleDPI();
+    const std::string text = TextFormat(
+        "mouse raw %.0f,%.0f  ui %.0f,%.0f  screen %dx%d  render %dx%d  dpi %.2f,%.2f",
+        raw.x,
+        raw.y,
+        ui_mouse.x,
+        ui_mouse.y,
+        GetScreenWidth(),
+        GetScreenHeight(),
+        GetRenderWidth(),
+        GetRenderHeight(),
+        dpi.x,
+        dpi.y);
+
+    DrawLine(static_cast<int>(ui_mouse.x - 8.0f), static_cast<int>(ui_mouse.y), static_cast<int>(ui_mouse.x + 8.0f), static_cast<int>(ui_mouse.y), Color{255, 80, 80, 255});
+    DrawLine(static_cast<int>(ui_mouse.x), static_cast<int>(ui_mouse.y - 8.0f), static_cast<int>(ui_mouse.x), static_cast<int>(ui_mouse.y + 8.0f), Color{255, 80, 80, 255});
+    DrawRectangle(18, 296, MeasureText(text.c_str(), 14) + 24, 24, Color{12, 15, 22, 210});
+    DrawText(text.c_str(), 30, 302, 14, Color{245, 222, 160, 255});
+}
+
 void draw_editor(EditorState& state) {
+    if (IsKeyPressed(KEY_F1)) {
+        state.show_mouse_debug = !state.show_mouse_debug;
+    }
+
     draw_canvas(state);
 
+    const Vector2 ui_mouse = ui_mouse_position();
     UiFrame ui{
-        .mouse = GetMousePosition(),
+        .mouse = ui_mouse,
         .next_id = 1,
         .active_control = &state.active_control,
     };
@@ -1099,6 +1133,10 @@ void draw_editor(EditorState& state) {
     }
 
     draw_status_footer(state);
+
+    if (state.show_mouse_debug) {
+        draw_mouse_debug(ui_mouse);
+    }
 }
 
 } // namespace
@@ -1106,6 +1144,7 @@ void draw_editor(EditorState& state) {
 int main() {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(k_window_width, k_window_height, "lens editor");
+    SetWindowMinSize(k_min_window_width, k_min_window_height);
     SetTargetFPS(60);
 
     EditorState state{
