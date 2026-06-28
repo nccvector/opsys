@@ -1,4 +1,4 @@
-#include "osys/osys.hpp"
+#include "opsys/opsys.hpp"
 
 #include <raylib.h>
 
@@ -42,7 +42,7 @@ struct SurfaceEdit {
     bool expanded{true};
     double vertex_z_mm{};
     double aperture_radius_mm{12.5};
-    osys::Medium medium_after{osys::n_bk7_medium};
+    opsys::Medium medium_after{opsys::n_bk7_medium};
     std::string medium_name_after{"N-BK7"};
     int medium_catalog_index{1};
     SurfaceKind kind{SurfaceKind::conic};
@@ -67,7 +67,7 @@ struct RayControls {
 struct EditorState {
     std::vector<SurfaceEdit> surfaces;
     RayControls rays;
-    osys::OpticalPresetId selected_preset{osys::OpticalPresetId::double_gauss_50mm_f2};
+    opsys::OpticalPresetId selected_preset{opsys::OpticalPresetId::double_gauss_50mm_f2};
     bool show_layers_panel{true};
     bool show_rays_panel{true};
     bool show_presets_panel{true};
@@ -81,18 +81,28 @@ struct EditorState {
     int active_control{};
 };
 
+struct EditorRay {
+    double ox{};
+    double oy{};
+    double oz{};
+    double dx{};
+    double dy{};
+    double dz{};
+    double wavelength{};
+};
+
 struct SourceRay {
-    osys::Ray ray;
+    EditorRay ray;
 };
 
 struct SpectralRay {
-    osys::Ray ray;
+    EditorRay ray;
     Color color{};
 };
 
 struct RayPath {
-    std::vector<osys::Vec3> points;
-    osys::TraceStatus status{osys::TraceStatus::ok};
+    std::vector<opsys::Vec3> points;
+    opsys::TraceStatus status{opsys::TraceStatus::ok};
 };
 
 struct WorldBounds {
@@ -172,12 +182,12 @@ struct PanelCursor {
     return "Unknown";
 }
 
-[[nodiscard]] bool is_air_medium(const osys::Medium& medium) {
-    return std::abs(osys::refractive_index(medium, 550.0) - 1.0) < 1.0e-6;
+[[nodiscard]] bool is_air_medium(const opsys::Medium& medium) {
+    return std::abs(opsys::refractive_index(medium, 550.0) - 1.0) < 1.0e-6;
 }
 
-[[nodiscard]] Color medium_color(const osys::Medium& medium, const unsigned char alpha) {
-    const double n = osys::refractive_index(medium, 550.0);
+[[nodiscard]] Color medium_color(const opsys::Medium& medium, const unsigned char alpha) {
+    const double n = opsys::refractive_index(medium, 550.0);
     if (n < 1.01) {
         return Color{120, 132, 146, alpha};
     }
@@ -195,27 +205,27 @@ struct PanelCursor {
 }
 
 void set_surface_medium_from_catalog(SurfaceEdit& surface, const int catalog_index) {
-    const int count = static_cast<int>(osys::medium_catalog_ids.size());
+    const int count = static_cast<int>(opsys::medium_catalog_ids.size());
     const int index = (catalog_index % count + count) % count;
-    const osys::MediumId id = osys::medium_catalog_ids[static_cast<std::size_t>(index)];
-    surface.medium_after = osys::medium(id);
-    surface.medium_name_after = std::string(osys::medium_name(id));
+    const opsys::MediumId id = opsys::medium_catalog_ids[static_cast<std::size_t>(index)];
+    surface.medium_after = opsys::medium(id);
+    surface.medium_name_after = std::string(opsys::medium_name(id));
     surface.medium_catalog_index = index;
 }
 
-[[nodiscard]] osys::SagittaSurface to_sagitta_surface(const SurfaceEdit& edit) {
+[[nodiscard]] opsys::SagittaSurface to_sagitta_surface(const SurfaceEdit& edit) {
     if (edit.kind == SurfaceKind::plane) {
-        return osys::SagittaSurface{osys::PlaneSagitta{}};
+        return opsys::SagittaSurface{opsys::PlaneSagitta{}};
     }
 
-    return osys::SagittaSurface{osys::ConicSagitta{
+    return opsys::SagittaSurface{opsys::ConicSagitta{
         .radius_mm = edit.radius_mm,
         .conic_constant = edit.conic_constant,
     }};
 }
 
-[[nodiscard]] osys::OpticalSurface to_optical_surface(const SurfaceEdit& edit) {
-    return osys::OpticalSurface{
+[[nodiscard]] opsys::OpticalSurface to_optical_surface(const SurfaceEdit& edit) {
+    return opsys::OpticalSurface{
         .vertex_z_mm = edit.vertex_z_mm,
         .aperture_radius_mm = edit.aperture_radius_mm,
         .medium_after = edit.medium_after,
@@ -223,18 +233,18 @@ void set_surface_medium_from_catalog(SurfaceEdit& surface, const int catalog_ind
     };
 }
 
-[[nodiscard]] osys::OpticalSystem to_optical_system(const std::vector<SurfaceEdit>& edits) {
-    osys::OpticalSystem system{osys::air_medium};
+[[nodiscard]] opsys::OpticalSystem to_optical_system(const std::vector<SurfaceEdit>& edits) {
+    opsys::OpticalSystem system{opsys::air_medium};
     system.surfaces.reserve(edits.size());
 
     for (const SurfaceEdit& edit : edits) {
-        osys::add_surface(system, to_optical_surface(edit));
+        opsys::add_surface(system, to_optical_surface(edit));
     }
 
     return system;
 }
 
-[[nodiscard]] SurfaceEdit surface_edit_from_spec(const osys::OpticalSurfaceSpec& spec) {
+[[nodiscard]] SurfaceEdit surface_edit_from_spec(const opsys::OpticalSurfaceSpec& spec) {
     SurfaceEdit edit{
         .expanded = false,
         .vertex_z_mm = spec.vertex_z_mm,
@@ -247,8 +257,8 @@ void set_surface_medium_from_catalog(SurfaceEdit& surface, const int catalog_ind
         .conic_constant = 0.0,
     };
 
-    if (std::holds_alternative<osys::ConicSagitta>(spec.shape.model)) {
-        const osys::ConicSagitta conic = std::get<osys::ConicSagitta>(spec.shape.model);
+    if (std::holds_alternative<opsys::ConicSagitta>(spec.shape.model)) {
+        const opsys::ConicSagitta conic = std::get<opsys::ConicSagitta>(spec.shape.model);
         edit.kind = SurfaceKind::conic;
         edit.radius_mm = conic.radius_mm;
         edit.conic_constant = conic.conic_constant;
@@ -257,21 +267,21 @@ void set_surface_medium_from_catalog(SurfaceEdit& surface, const int catalog_ind
     return edit;
 }
 
-[[nodiscard]] std::vector<SurfaceEdit> surfaces_for_preset(const osys::OpticalPresetId id) {
-    const std::span<const osys::OpticalSurfaceSpec> specs = osys::optical_preset_surfaces(id);
+[[nodiscard]] std::vector<SurfaceEdit> surfaces_for_preset(const opsys::OpticalPresetId id) {
+    const std::span<const opsys::OpticalSurfaceSpec> specs = opsys::optical_preset_surfaces(id);
     std::vector<SurfaceEdit> edits;
     edits.reserve(specs.size());
-    for (const osys::OpticalSurfaceSpec& spec : specs) {
+    for (const opsys::OpticalSurfaceSpec& spec : specs) {
         edits.push_back(surface_edit_from_spec(spec));
     }
     return edits;
 }
 
 [[nodiscard]] std::vector<SurfaceEdit> default_surfaces() {
-    return surfaces_for_preset(osys::OpticalPresetId::double_gauss_50mm_f2);
+    return surfaces_for_preset(opsys::OpticalPresetId::double_gauss_50mm_f2);
 }
 
-void load_optical_preset(EditorState& state, const osys::OpticalPresetId id) {
+void load_optical_preset(EditorState& state, const opsys::OpticalPresetId id) {
     state.selected_preset = id;
     state.surfaces = surfaces_for_preset(id);
     state.active_control = 0;
@@ -281,8 +291,8 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     load_optical_preset(
         state,
         forward
-            ? osys::next_optical_preset_id(state.selected_preset)
-            : osys::previous_optical_preset_id(state.selected_preset));
+            ? opsys::next_optical_preset_id(state.selected_preset)
+            : opsys::previous_optical_preset_id(state.selected_preset));
 }
 
 [[nodiscard]] double max_aperture_radius(const std::vector<SurfaceEdit>& surfaces) {
@@ -348,20 +358,36 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     };
 }
 
-[[nodiscard]] Vector2 to_screen(const View2D& view, const osys::Vec3 point) {
+[[nodiscard]] Vector2 to_screen(const View2D& view, const opsys::Vec3 point) {
     return Vector2{
         .x = view.canvas.x + 0.5f * view.canvas.width + static_cast<float>((point.z - view.center_z_mm) * view.px_per_mm),
         .y = view.canvas.y + 0.5f * view.canvas.height - static_cast<float>((point.y - view.center_y_mm) * view.px_per_mm),
     };
 }
 
-[[nodiscard]] osys::Vec3 normalize_or_forward(const osys::Vec3 value) {
-    const double len = osys::length(value);
+[[nodiscard]] opsys::Vec3 normalize_or_forward(const opsys::Vec3 value) {
+    const double len = opsys::length(value);
     if (near_zero(len) || !std::isfinite(len)) {
         return {0.0, 0.0, 1.0};
     }
 
     return value / len;
+}
+
+[[nodiscard]] EditorRay make_ray(
+    const opsys::Vec3 origin_mm,
+    const opsys::Vec3 direction,
+    const double wavelength_nm) {
+    const opsys::Vec3 normalized_direction = normalize_or_forward(direction);
+    return {
+        .ox = origin_mm.x,
+        .oy = origin_mm.y,
+        .oz = origin_mm.z,
+        .dx = normalized_direction.x,
+        .dy = normalized_direction.y,
+        .dz = normalized_direction.z,
+        .wavelength = wavelength_nm,
+    };
 }
 
 [[nodiscard]] Color wavelength_color(double wavelength_nm, const unsigned char alpha = 210) {
@@ -436,11 +462,10 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
 
     switch (state.rays.preset) {
         case RayPreset::single_offset: {
-            source_rays.push_back(SourceRay{osys::Ray{
-                .origin_mm = {0.0, state.rays.single_offset_mm, start_z},
-                .direction = {0.0, 0.0, 1.0},
-                .wavelength_nm = state.rays.wavelength_nm,
-            }});
+            source_rays.push_back(SourceRay{make_ray(
+                {0.0, state.rays.single_offset_mm, start_z},
+                {0.0, 0.0, 1.0},
+                state.rays.wavelength_nm)});
             break;
         }
 
@@ -450,11 +475,10 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
             for (int i = 0; i < count; ++i) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double y = lerp_double(-0.82 * aperture, 0.82 * aperture, t);
-                source_rays.push_back(SourceRay{osys::Ray{
-                    .origin_mm = {0.0, y, start_z},
-                    .direction = {0.0, 0.0, 1.0},
-                    .wavelength_nm = state.rays.wavelength_nm,
-                }});
+                source_rays.push_back(SourceRay{make_ray(
+                    {0.0, y, start_z},
+                    {0.0, 0.0, 1.0},
+                    state.rays.wavelength_nm)});
             }
             break;
         }
@@ -462,44 +486,34 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
         case RayPreset::angled_center: {
             const double angle = deg_to_rad(state.rays.angle_deg);
             const double distance = first_z - start_z;
-            const osys::Vec3 origin{0.0, -std::tan(angle) * distance, start_z};
-            const osys::Vec3 target{0.0, 0.0, first_z};
-            source_rays.push_back(SourceRay{osys::Ray{
-                .origin_mm = origin,
-                .direction = normalize_or_forward(target - origin),
-                .wavelength_nm = state.rays.wavelength_nm,
-            }});
+            const opsys::Vec3 origin{0.0, -std::tan(angle) * distance, start_z};
+            const opsys::Vec3 target{0.0, 0.0, first_z};
+            source_rays.push_back(SourceRay{make_ray(origin, target - origin, state.rays.wavelength_nm)});
             break;
         }
 
         case RayPreset::edge_pair: {
             const double y = clamp_double(state.rays.edge_fraction, 0.1, 0.98) * aperture;
-            source_rays.push_back(SourceRay{osys::Ray{
-                .origin_mm = {0.0, -y, start_z},
-                .direction = {0.0, 0.0, 1.0},
-                .wavelength_nm = state.rays.wavelength_nm,
-            }});
-            source_rays.push_back(SourceRay{osys::Ray{
-                .origin_mm = {0.0, y, start_z},
-                .direction = {0.0, 0.0, 1.0},
-                .wavelength_nm = state.rays.wavelength_nm,
-            }});
+            source_rays.push_back(SourceRay{make_ray(
+                {0.0, -y, start_z},
+                {0.0, 0.0, 1.0},
+                state.rays.wavelength_nm)});
+            source_rays.push_back(SourceRay{make_ray(
+                {0.0, y, start_z},
+                {0.0, 0.0, 1.0},
+                state.rays.wavelength_nm)});
             break;
         }
 
         case RayPreset::point_source: {
             const int count = clamp_int(state.rays.point_samples, 2, 25);
-            const osys::Vec3 origin{0.0, state.rays.point_source_y_mm, state.rays.point_source_z_mm};
+            const opsys::Vec3 origin{0.0, state.rays.point_source_y_mm, state.rays.point_source_z_mm};
             source_rays.reserve(static_cast<std::size_t>(count));
             for (int i = 0; i < count; ++i) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double target_y = lerp_double(-0.92 * aperture, 0.92 * aperture, t);
-                const osys::Vec3 target{0.0, target_y, first_z};
-                source_rays.push_back(SourceRay{osys::Ray{
-                    .origin_mm = origin,
-                    .direction = normalize_or_forward(target - origin),
-                    .wavelength_nm = state.rays.wavelength_nm,
-                }});
+                const opsys::Vec3 target{0.0, target_y, first_z};
+                source_rays.push_back(SourceRay{make_ray(origin, target - origin, state.rays.wavelength_nm)});
             }
             break;
         }
@@ -516,8 +530,8 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     rays.reserve(sources.size() * wavelengths.size());
     for (const SourceRay& source : sources) {
         for (const double wavelength : wavelengths) {
-            osys::Ray ray = source.ray;
-            ray.wavelength_nm = wavelength;
+            EditorRay ray = source.ray;
+            ray.wavelength = wavelength;
             rays.push_back(SpectralRay{
                 .ray = ray,
                 .color = wavelength_color(wavelength, state.rays.spectral ? 92 : 230),
@@ -528,84 +542,89 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     return rays;
 }
 
-[[nodiscard]] std::optional<osys::Vec3> refract_direction(
-    const osys::Vec3 incident,
-    const osys::Vec3 surface_normal,
+[[nodiscard]] std::optional<opsys::Vec3> refract_direction(
+    const opsys::Vec3 incident,
+    const opsys::Vec3 surface_normal,
     const double n_incident,
     const double n_transmitted) {
-    osys::Vec3 normal = osys::normalize(surface_normal);
-    const osys::Vec3 direction = osys::normalize(incident);
+    opsys::Vec3 normal = opsys::normalize(surface_normal);
+    const opsys::Vec3 direction = opsys::normalize(incident);
 
-    if (osys::dot(direction, normal) > 0.0) {
+    if (opsys::dot(direction, normal) > 0.0) {
         normal = -normal;
     }
 
     const double eta = n_incident / n_transmitted;
-    const double cos_i = -osys::dot(normal, direction);
+    const double cos_i = -opsys::dot(normal, direction);
     const double k = 1.0 - eta * eta * (1.0 - cos_i * cos_i);
     if (k < 0.0) {
         return std::nullopt;
     }
 
-    return osys::normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
+    return opsys::normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
 }
 
 [[nodiscard]] RayPath trace_path(
-    const osys::OpticalSystem& system,
-    const osys::Ray& input,
+    const opsys::OpticalSystem& system,
+    const EditorRay& input,
     const double end_z_mm) {
     RayPath path{};
-    osys::Ray ray = input;
-    ray.direction = normalize_or_forward(ray.direction);
-    osys::Medium current_medium = system.initial_medium;
-    path.points.push_back(ray.origin_mm);
+    EditorRay ray = input;
+    opsys::set_ray_direction(ray, normalize_or_forward(opsys::ray_direction(ray)));
+    opsys::Medium current_medium = system.initial_medium;
+    path.points.push_back(opsys::ray_origin_mm(ray));
 
-    for (const osys::OpticalSurface& surface : system.surfaces) {
-        const std::optional<double> hit_t = osys::intersect_surface(ray, surface);
+    for (const opsys::OpticalSurface& surface : system.surfaces) {
+        const std::optional<double> hit_t = opsys::intersect_surface(ray, surface);
+        const opsys::Vec3 origin = opsys::ray_origin_mm(ray);
+        const opsys::Vec3 direction = opsys::ray_direction(ray);
         if (!hit_t.has_value()) {
-            const double fallback_t = std::abs(end_z_mm - ray.origin_mm.z) + 40.0;
-            path.points.push_back(ray.origin_mm + fallback_t * ray.direction);
-            path.status = osys::TraceStatus::no_intersection;
+            const double fallback_t = std::abs(end_z_mm - origin.z) + 40.0;
+            path.points.push_back(origin + fallback_t * direction);
+            path.status = opsys::TraceStatus::no_intersection;
             return path;
         }
 
-        const osys::Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
+        const opsys::Vec3 hit = origin + *hit_t * direction;
         path.points.push_back(hit);
 
         if (std::hypot(hit.x, hit.y) > surface.aperture_radius_mm) {
-            path.status = osys::TraceStatus::missed_aperture;
+            path.status = opsys::TraceStatus::missed_aperture;
             return path;
         }
 
-        const std::optional<osys::Vec3> normal = osys::surface_normal(hit, surface);
+        const std::optional<opsys::Vec3> normal = opsys::surface_normal(hit, surface);
         if (!normal.has_value()) {
-            path.status = osys::TraceStatus::no_intersection;
+            path.status = opsys::TraceStatus::no_intersection;
             return path;
         }
 
-        const double n_before = osys::refractive_index(current_medium, ray.wavelength_nm);
-        const double n_after = osys::refractive_index(surface.medium_after, ray.wavelength_nm);
-        const std::optional<osys::Vec3> refracted = refract_direction(ray.direction, *normal, n_before, n_after);
+        const double wavelength = opsys::ray_wavelength(ray);
+        const double n_before = opsys::refractive_index(current_medium, wavelength);
+        const double n_after = opsys::refractive_index(surface.medium_after, wavelength);
+        const std::optional<opsys::Vec3> refracted = refract_direction(direction, *normal, n_before, n_after);
         if (!refracted.has_value()) {
-            path.status = osys::TraceStatus::total_internal_reflection;
+            path.status = opsys::TraceStatus::total_internal_reflection;
             return path;
         }
 
-        ray.origin_mm = hit + k_ray_epsilon_mm * *refracted;
-        ray.direction = *refracted;
+        opsys::set_ray_origin_mm(ray, hit + k_ray_epsilon_mm * *refracted);
+        opsys::set_ray_direction(ray, *refracted);
         current_medium = surface.medium_after;
     }
 
     double t = 70.0;
-    if (!near_zero(ray.direction.z)) {
-        t = (end_z_mm - ray.origin_mm.z) / ray.direction.z;
+    const opsys::Vec3 origin = opsys::ray_origin_mm(ray);
+    const opsys::Vec3 direction = opsys::ray_direction(ray);
+    if (!near_zero(direction.z)) {
+        t = (end_z_mm - origin.z) / direction.z;
         if (t < 1.0 || !std::isfinite(t)) {
             t = 70.0;
         }
     }
 
-    path.points.push_back(ray.origin_mm + t * ray.direction);
-    path.status = osys::TraceStatus::ok;
+    path.points.push_back(origin + t * direction);
+    path.status = opsys::TraceStatus::ok;
     return path;
 }
 
@@ -792,23 +811,23 @@ void draw_grid(const View2D& view) {
 
     for (int z_step = z_start; z_step <= z_end; ++z_step) {
         const double z = z_step * grid_mm;
-        const Vector2 a = to_screen(view, osys::Vec3{0.0, bottom_y, z});
-        const Vector2 b = to_screen(view, osys::Vec3{0.0, top_y, z});
+        const Vector2 a = to_screen(view, opsys::Vec3{0.0, bottom_y, z});
+        const Vector2 b = to_screen(view, opsys::Vec3{0.0, top_y, z});
         DrawLineV(a, b, z_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 
     for (int y_step = y_start; y_step <= y_end; ++y_step) {
         const double y = y_step * grid_mm;
-        const Vector2 a = to_screen(view, osys::Vec3{0.0, y, left_z});
-        const Vector2 b = to_screen(view, osys::Vec3{0.0, y, right_z});
+        const Vector2 a = to_screen(view, opsys::Vec3{0.0, y, left_z});
+        const Vector2 b = to_screen(view, opsys::Vec3{0.0, y, right_z});
         DrawLineV(a, b, y_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 }
 
-[[nodiscard]] osys::Vec3 surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
-    const osys::SagittaSurface surface = to_sagitta_surface(edit);
-    const std::optional<double> sagitta = osys::sagitta_mm(surface, std::abs(y_mm));
-    return osys::Vec3{
+[[nodiscard]] opsys::Vec3 surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
+    const opsys::SagittaSurface surface = to_sagitta_surface(edit);
+    const std::optional<double> sagitta = opsys::sagitta_mm(surface, std::abs(y_mm));
+    return opsys::Vec3{
         .x = 0.0,
         .y = y_mm,
         .z = edit.vertex_z_mm + sagitta.value_or(0.0),
@@ -824,7 +843,7 @@ void draw_surface_curve(const View2D& view, const SurfaceEdit& edit, const Color
     for (int i = 0; i <= samples; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(samples);
         const double y = lerp_double(-aperture, aperture, t);
-        const osys::Vec3 point = surface_point_at_y(edit, y);
+        const opsys::Vec3 point = surface_point_at_y(edit, y);
         const Vector2 screen = to_screen(view, point);
         if (has_previous) {
             DrawLineEx(previous, screen, 2.2f, color);
@@ -869,8 +888,8 @@ void draw_lens_medium_regions(const View2D& view, const std::vector<SurfaceEdit>
 
 void draw_aperture_lines(const View2D& view, const std::vector<SurfaceEdit>& surfaces) {
     for (const SurfaceEdit& surface : surfaces) {
-        const Vector2 top = to_screen(view, osys::Vec3{0.0, surface.aperture_radius_mm, surface.vertex_z_mm});
-        const Vector2 bottom = to_screen(view, osys::Vec3{0.0, -surface.aperture_radius_mm, surface.vertex_z_mm});
+        const Vector2 top = to_screen(view, opsys::Vec3{0.0, surface.aperture_radius_mm, surface.vertex_z_mm});
+        const Vector2 bottom = to_screen(view, opsys::Vec3{0.0, -surface.aperture_radius_mm, surface.vertex_z_mm});
         DrawCircleV(top, 3.0f, Color{214, 221, 232, 180});
         DrawCircleV(bottom, 3.0f, Color{214, 221, 232, 180});
     }
@@ -899,14 +918,14 @@ void draw_ray_path(const View2D& view, const RayPath& path, const Color color, c
         DrawLineEx(a, b, width, color);
     }
 
-    if (path.status != osys::TraceStatus::ok) {
+    if (path.status != opsys::TraceStatus::ok) {
         const Vector2 last = to_screen(view, path.points.back());
         DrawCircleLines(static_cast<int>(last.x), static_cast<int>(last.y), 5.0f, Color{255, 96, 96, 230});
     }
 }
 
 void draw_rays(const View2D& view, const EditorState& state) {
-    const osys::OpticalSystem system = to_optical_system(state.surfaces);
+    const opsys::OpticalSystem system = to_optical_system(state.surfaces);
     const std::vector<SpectralRay> rays = spectral_rays_for_controls(state);
     const double end_z = world_bounds(state).max_z;
 
@@ -1075,7 +1094,7 @@ void draw_presets_panel(UiFrame& ui, EditorState& state) {
         return;
     }
 
-    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
+    const opsys::OpticalPresetInfo& info = opsys::optical_preset_info(state.selected_preset);
     PanelCursor cursor{panel.x + 14.0f, panel.y + 44.0f, panel.width - 28.0f};
 
     const Rectangle name_row = row_rect(cursor, 34.0f);
@@ -1139,7 +1158,7 @@ void draw_toolbar(UiFrame& ui, EditorState& state) {
 
 void draw_status_footer(const EditorState& state) {
     const std::vector<SpectralRay> rays = spectral_rays_for_controls(state);
-    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
+    const opsys::OpticalPresetInfo& info = opsys::optical_preset_info(state.selected_preset);
     const std::string text = TextFormat(
         "%s  |  %zu surfaces  |  %zu traced rays  |  %s",
         info.name.data(),
@@ -1175,7 +1194,7 @@ void draw_status_footer(const EditorState& state) {
     return slug.empty() ? "preset" : slug;
 }
 
-[[nodiscard]] EditorState export_state_for_preset(const osys::OpticalPresetId id) {
+[[nodiscard]] EditorState export_state_for_preset(const opsys::OpticalPresetId id) {
     EditorState state{};
     state.surfaces = surfaces_for_preset(id);
     state.rays.preset = RayPreset::parallel_bundle;
@@ -1193,7 +1212,7 @@ void draw_status_footer(const EditorState& state) {
 }
 
 void draw_export_overlay(const EditorState& state) {
-    const osys::OpticalPresetInfo& info = osys::optical_preset_info(state.selected_preset);
+    const opsys::OpticalPresetInfo& info = opsys::optical_preset_info(state.selected_preset);
     const std::string title{info.name};
     const std::string meta = TextFormat(
         "%.2f mm  f/%.2f  %zu surfaces",
@@ -1219,9 +1238,9 @@ void draw_export_overlay(const EditorState& state) {
     return saved;
 }
 
-[[nodiscard]] bool export_preset_png(const osys::OpticalPresetId id, const RenderTexture2D target, const std::filesystem::path& output_dir) {
+[[nodiscard]] bool export_preset_png(const opsys::OpticalPresetId id, const RenderTexture2D target, const std::filesystem::path& output_dir) {
     EditorState state = export_state_for_preset(id);
-    const osys::OpticalPresetInfo& info = osys::optical_preset_info(id);
+    const opsys::OpticalPresetInfo& info = opsys::optical_preset_info(id);
     const std::filesystem::path output_path = output_dir / (preset_slug(info.name) + ".png");
 
     BeginDrawing();
@@ -1251,11 +1270,11 @@ void draw_export_overlay(const EditorState& state) {
 
     SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIDDEN);
-    InitWindow(k_export_width, k_export_height, "osys preset export");
+    InitWindow(k_export_width, k_export_height, "opsys preset export");
 
     RenderTexture2D target = LoadRenderTexture(k_export_width, k_export_height);
     bool ok = true;
-    for (const osys::OpticalPresetId id : osys::optical_preset_ids) {
+    for (const opsys::OpticalPresetId id : opsys::optical_preset_ids) {
         ok = export_preset_png(id, target, output_dir) && ok;
     }
 
@@ -1333,7 +1352,7 @@ int main(const int argc, char** argv) {
     }
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(k_window_width, k_window_height, "osys editor");
+    InitWindow(k_window_width, k_window_height, "opsys editor");
     SetWindowMinSize(k_min_window_width, k_min_window_height);
     SetTargetFPS(60);
 

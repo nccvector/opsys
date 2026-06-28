@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace osys {
+namespace opsys {
 
 struct Vec3 {
     double x{};
@@ -21,7 +21,7 @@ struct Vec3 {
         return {-x, -y, -z};
     }
 
-    [[nodiscard]] constexpr Vec3 operator*(double scale) const {
+    [[nodiscard]] constexpr Vec3 operator*(const double scale) const {
         return {x * scale, y * scale, z * scale};
     }
 
@@ -47,4 +47,4 @@ struct Vec3 {
     return value / len;
 }
 
-} // namespace osys
+} // namespace opsys

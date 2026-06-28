@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace osys {
+namespace opsys {
 
 struct ConstantIndex {
     double n{};
@@ -71,7 +71,7 @@ struct Medium {
 }
 
 inline double Medium::refractive_index(double wavelength_nm) const {
-    return osys::refractive_index(*this, wavelength_nm);
+    return opsys::refractive_index(*this, wavelength_nm);
 }
 
 enum class MediumId {
@@ -154,4 +154,4 @@ inline constexpr std::array<MediumId, 6> medium_catalog_ids{
     return "Unknown";
 }
 
-} // namespace osys
+} // namespace opsys

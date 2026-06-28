@@ -1,26 +1,40 @@
-#include "osys/osys.hpp"
+#include "opsys/opsys.hpp"
 
 #include <iostream>
 
-int main() {
-    osys::OpticalSystem system = osys::optical_system(osys::OpticalPresetId::double_gauss_50mm_f2);
+struct DemoRay {
+    double ox{};
+    double oy{};
+    double oz{};
+    double dx{};
+    double dy{};
+    double dz{};
+    double wavelength{};
+};
 
-    constexpr osys::Ray input{
-        .origin_mm = {0.0, 5.0, -20.0},
-        .direction = {0.0, 0.0, 1.0},
-        .wavelength_nm = 550.0,
+int main() {
+    opsys::OpticalSystem system = opsys::optical_system(opsys::OpticalPresetId::double_gauss_50mm_f2);
+
+    constexpr DemoRay input{
+        .ox = 0.0,
+        .oy = 5.0,
+        .oz = -20.0,
+        .dx = 0.0,
+        .dy = 0.0,
+        .dz = 1.0,
+        .wavelength = 550.0,
     };
 
-    const osys::TraceResult result = osys::trace(system, input);
+    const opsys::TraceResult<DemoRay> result = opsys::trace(system, input);
     std::cout << "trace status: " << static_cast<int>(result.status) << '\n';
     std::cout << "origin mm: "
-              << result.output_ray.origin_mm.x << ", "
-              << result.output_ray.origin_mm.y << ", "
-              << result.output_ray.origin_mm.z << '\n';
+              << result.output_ray.ox << ", "
+              << result.output_ray.oy << ", "
+              << result.output_ray.oz << '\n';
     std::cout << "direction: "
-              << result.output_ray.direction.x << ", "
-              << result.output_ray.direction.y << ", "
-              << result.output_ray.direction.z << '\n';
+              << result.output_ray.dx << ", "
+              << result.output_ray.dy << ", "
+              << result.output_ray.dz << '\n';
 
-    return result.status == osys::TraceStatus::ok ? 0 : 1;
+    return result.status == opsys::TraceStatus::ok ? 0 : 1;
 }

@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace osys {
+namespace opsys {
 
 namespace detail {
 
@@ -108,11 +108,11 @@ struct SagittaSurface {
 }
 
 inline std::optional<double> SagittaSurface::sagitta_mm(double radius_mm) const {
-    return osys::sagitta_mm(*this, radius_mm);
+    return opsys::sagitta_mm(*this, radius_mm);
 }
 
 inline std::optional<double> SagittaSurface::dsagitta_dr(double radius_mm) const {
-    return osys::dsagitta_dr(*this, radius_mm);
+    return opsys::dsagitta_dr(*this, radius_mm);
 }
 
-} // namespace osys
+} // namespace opsys

@@ -1,13 +1,13 @@
 #pragma once
 
-#include "osys/optical_system.hpp"
+#include "opsys/optical_system.hpp"
 
 #include <array>
 #include <cstddef>
 #include <span>
 #include <string_view>
 
-namespace osys {
+namespace opsys {
 
 struct OpticalSurfaceSpec {
     double vertex_z_mm{};
@@ -292,4 +292,4 @@ inline constexpr std::array<OpticalPresetInfo, optical_preset_ids.size()> optica
     return optical_system(optical_preset_surfaces(id));
 }
 
-} // namespace osys
+} // namespace opsys

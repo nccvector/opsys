@@ -1,33 +1,35 @@
 #pragma once
 
-#include "osys/medium.hpp"
-#include "osys/ray.hpp"
-#include "osys/sagitta.hpp"
+#include "opsys/medium.hpp"
+#include "opsys/ray.hpp"
+#include "opsys/sagitta.hpp"
 
 #include <cstddef>
 #include <cmath>
 #include <optional>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
-namespace osys {
+namespace opsys {
 
 namespace detail {
 
 constexpr double k_ray_epsilon_mm = 1.0e-9;
 constexpr double k_surface_intersection_tolerance_mm = 1.0e-7;
 
-[[nodiscard]] inline bool finite_ray(const Ray& ray) {
-    return std::isfinite(ray.origin_mm.x)
-        && std::isfinite(ray.origin_mm.y)
-        && std::isfinite(ray.origin_mm.z)
-        && std::isfinite(ray.direction.x)
-        && std::isfinite(ray.direction.y)
-        && std::isfinite(ray.direction.z)
-        && std::isfinite(ray.wavelength_nm)
-        && length(ray.direction) > 0.0
-        && ray.wavelength_nm > 0.0;
+[[nodiscard]] inline bool finite_ray(const RayLike auto& ray) {
+    const Vec3 origin = ray_origin_mm(ray);
+    const Vec3 direction = ray_direction(ray);
+    const double wavelength = ray_wavelength(ray);
+    return std::isfinite(origin.x)
+        && std::isfinite(origin.y)
+        && std::isfinite(origin.z)
+        && std::isfinite(direction.x)
+        && std::isfinite(direction.y)
+        && std::isfinite(direction.z)
+        && std::isfinite(wavelength)
+        && length(direction) > 0.0
+        && wavelength > 0.0;
 }
 
 [[nodiscard]] inline double radial_distance(Vec3 point) {
@@ -80,17 +82,21 @@ enum class TraceStatus {
     total_internal_reflection,
 };
 
+template <RayLike Ray>
 struct TraceResult {
     TraceStatus status{TraceStatus::ok};
-    Ray output_ray{};
+    Ray output_ray;
     std::size_t surface_index{};
 };
 
 struct OpticalSystem {
     void add_surface(const OpticalSurface &surface);
 
-    [[nodiscard]] TraceResult trace(const Ray& input) const;
-    [[nodiscard]] TraceResult reverse_trace(const Ray& input) const;
+    template <RayLike Ray>
+    [[nodiscard]] TraceResult<Ray> trace(const Ray& input) const;
+
+    template <RayLike Ray>
+    [[nodiscard]] TraceResult<Ray> reverse_trace(const Ray& input) const;
 
     Medium initial_medium{};
     std::vector<OpticalSurface> surfaces;
@@ -120,31 +126,33 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
     system.surfaces.push_back(surface);
 }
 
-[[nodiscard]] inline std::optional<double> intersect_surface(const Ray& ray, const OpticalSurface& surface) {
+[[nodiscard]] inline std::optional<double> intersect_surface(const RayLike auto& ray, const OpticalSurface& surface) {
+    const Vec3 origin = ray_origin_mm(ray);
+    const Vec3 direction = ray_direction(ray);
     return std::visit([&](const auto& sagitta) -> std::optional<double> {
         using Sagitta = std::decay_t<decltype(sagitta)>;
 
         if constexpr (std::is_same_v<Sagitta, PlaneSagitta>) {
-            if (detail::near_zero(ray.direction.z)) {
+            if (detail::near_zero(direction.z)) {
                 return std::nullopt;
             }
-            return detail::forward_t((surface.vertex_z_mm - ray.origin_mm.z) / ray.direction.z);
+            return detail::forward_t((surface.vertex_z_mm - origin.z) / direction.z);
         } else {
             if (detail::near_zero(sagitta.radius_mm)) {
                 return std::nullopt;
             }
 
             const double k = 1.0 + sagitta.conic_constant;
-            const double z0 = ray.origin_mm.z - surface.vertex_z_mm;
-            const double a = ray.direction.x * ray.direction.x
-                + ray.direction.y * ray.direction.y
-                + k * ray.direction.z * ray.direction.z;
-            const double b = 2.0 * (ray.origin_mm.x * ray.direction.x
-                + ray.origin_mm.y * ray.direction.y
-                + k * z0 * ray.direction.z
-                - sagitta.radius_mm * ray.direction.z);
-            const double c = ray.origin_mm.x * ray.origin_mm.x
-                + ray.origin_mm.y * ray.origin_mm.y
+            const double z0 = origin.z - surface.vertex_z_mm;
+            const double a = direction.x * direction.x
+                + direction.y * direction.y
+                + k * direction.z * direction.z;
+            const double b = 2.0 * (origin.x * direction.x
+                + origin.y * direction.y
+                + k * z0 * direction.z
+                - sagitta.radius_mm * direction.z);
+            const double c = origin.x * origin.x
+                + origin.y * origin.y
                 + k * z0 * z0
                 - 2.0 * sagitta.radius_mm * z0;
 
@@ -155,7 +163,7 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
                     return;
                 }
 
-                const Vec3 point = ray.origin_mm + *forward * ray.direction;
+                const Vec3 point = origin + *forward * direction;
                 const std::optional<double> expected_z = detail::conic_sagitta(
                     detail::radial_distance(point),
                     sagitta.radius_mm,
@@ -220,7 +228,7 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
 namespace detail {
 
 [[nodiscard]] inline TraceStatus trace_surface(
-    Ray& ray,
+    RayLike auto& ray,
     Medium& current_medium,
     const OpticalSurface& surface,
     const Medium& next_medium) {
@@ -229,7 +237,9 @@ namespace detail {
         return TraceStatus::no_intersection;
     }
 
-    const Vec3 hit = ray.origin_mm + *hit_t * ray.direction;
+    const Vec3 origin = ray_origin_mm(ray);
+    const Vec3 direction = ray_direction(ray);
+    const Vec3 hit = origin + *hit_t * direction;
     if (radial_distance(hit) > surface.aperture_radius_mm) {
         return TraceStatus::missed_aperture;
     }
@@ -239,22 +249,24 @@ namespace detail {
         return TraceStatus::no_intersection;
     }
 
-    const double n_before = refractive_index(current_medium, ray.wavelength_nm);
-    const double n_after = refractive_index(next_medium, ray.wavelength_nm);
-    const std::optional<Vec3> refracted = refract(ray.direction, *normal, n_before, n_after);
+    const double wavelength = ray_wavelength(ray);
+    const double n_before = refractive_index(current_medium, wavelength);
+    const double n_after = refractive_index(next_medium, wavelength);
+    const std::optional<Vec3> refracted = refract(direction, *normal, n_before, n_after);
     if (!refracted.has_value()) {
         return TraceStatus::total_internal_reflection;
     }
 
-    ray.origin_mm = hit + k_ray_epsilon_mm * *refracted;
-    ray.direction = *refracted;
+    set_ray_origin_mm(ray, hit + k_ray_epsilon_mm * *refracted);
+    set_ray_direction(ray, *refracted);
     current_medium = next_medium;
     return TraceStatus::ok;
 }
 
 } // namespace detail
 
-[[nodiscard]] inline TraceResult trace(const OpticalSystem& system, const Ray& input) {
+template <RayLike Ray>
+[[nodiscard]] inline TraceResult<Ray> trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
     }
@@ -273,7 +285,8 @@ namespace detail {
     return {.status = TraceStatus::ok, .output_ray = ray, .surface_index = system.surfaces.size()};
 }
 
-[[nodiscard]] inline TraceResult reverse_trace(const OpticalSystem& system, const Ray& input) {
+template <RayLike Ray>
+[[nodiscard]] inline TraceResult<Ray> reverse_trace(const OpticalSystem& system, const Ray& input) {
     if (!detail::finite_ray(input)) {
         return {.status = TraceStatus::invalid_ray, .output_ray = input};
     }
@@ -295,15 +308,17 @@ namespace detail {
 }
 
 inline void OpticalSystem::add_surface(const OpticalSurface &surface) {
-    osys::add_surface(*this, surface);
+    opsys::add_surface(*this, surface);
 }
 
-inline TraceResult OpticalSystem::trace(const Ray& input) const {
-    return osys::trace(*this, input);
+template <RayLike Ray>
+inline TraceResult<Ray> OpticalSystem::trace(const Ray& input) const {
+    return opsys::trace(*this, input);
 }
 
-inline TraceResult OpticalSystem::reverse_trace(const Ray& input) const {
-    return osys::reverse_trace(*this, input);
+template <RayLike Ray>
+inline TraceResult<Ray> OpticalSystem::reverse_trace(const Ray& input) const {
+    return opsys::reverse_trace(*this, input);
 }
 
-} // namespace osys
+} // namespace opsys
