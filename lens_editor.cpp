@@ -646,6 +646,10 @@ bool ui_toggle(UiFrame& ui, const Rectangle rect, const char* label, bool& value
     return clicked;
 }
 
+bool ui_panel_close_button(UiFrame& ui, const Rectangle panel) {
+    return ui_button(ui, Rectangle{panel.x + panel.width - 38.0f, panel.y + 8.0f, 24.0f, 24.0f}, "x");
+}
+
 bool ui_cycle_medium(UiFrame& ui, const Rectangle rect, MediumId& value) {
     if (!ui_button(ui, rect, medium_name(value))) {
         return false;
@@ -939,6 +943,11 @@ void draw_layers_panel(UiFrame& ui, EditorState& state) {
     };
 
     draw_panel_background(panel, "Layers");
+    if (ui_panel_close_button(ui, panel)) {
+        state.show_layers_panel = false;
+        return;
+    }
+
     PanelCursor cursor{panel.x + 14.0f, panel.y + 44.0f, panel.width - 28.0f};
 
     Rectangle header = row_rect(cursor, 30.0f);
@@ -1003,6 +1012,11 @@ void draw_rays_panel(UiFrame& ui, EditorState& state) {
     const Rectangle panel{x, 58.0f, panel_w, 536.0f};
 
     draw_panel_background(panel, "Rays");
+    if (ui_panel_close_button(ui, panel)) {
+        state.show_rays_panel = false;
+        return;
+    }
+
     PanelCursor cursor{panel.x + 14.0f, panel.y + 44.0f, panel.width - 28.0f};
 
     const Rectangle preset_row = row_rect(cursor, 30.0f);
@@ -1041,6 +1055,11 @@ void draw_rays_panel(UiFrame& ui, EditorState& state) {
 void draw_view_panel(UiFrame& ui, EditorState& state) {
     const Rectangle panel{18.0f, 58.0f, 306.0f, 232.0f};
     draw_panel_background(panel, "View");
+    if (ui_panel_close_button(ui, panel)) {
+        state.show_view_panel = false;
+        return;
+    }
+
     PanelCursor cursor{panel.x + 14.0f, panel.y + 44.0f, panel.width - 28.0f};
 
     ui_toggle(ui, row_rect(cursor, 30.0f), "Grid", state.show_grid);
