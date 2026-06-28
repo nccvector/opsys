@@ -1,7 +1,5 @@
 #pragma once
 
-#include "opsys/geometry.hpp"
-
 #include <concepts>
 
 namespace opsys {
@@ -25,36 +23,8 @@ concept RayLike = requires(Ray ray, const Ray const_ray, double value) {
     ray.wavelength = value;
 };
 
-[[nodiscard]] constexpr Vec3 ray_origin_mm(const RayLike auto& ray) {
-    return Vec3{
-        static_cast<double>(ray.ox),
-        static_cast<double>(ray.oy),
-        static_cast<double>(ray.oz),
-    };
-}
-
-[[nodiscard]] constexpr Vec3 ray_direction(const RayLike auto& ray) {
-    return Vec3{
-        static_cast<double>(ray.dx),
-        static_cast<double>(ray.dy),
-        static_cast<double>(ray.dz),
-    };
-}
-
 [[nodiscard]] constexpr double ray_wavelength(const RayLike auto& ray) {
     return static_cast<double>(ray.wavelength);
-}
-
-constexpr void set_ray_origin_mm(RayLike auto& ray, const Vec3 origin_mm) {
-    ray.ox = origin_mm.x;
-    ray.oy = origin_mm.y;
-    ray.oz = origin_mm.z;
-}
-
-constexpr void set_ray_direction(RayLike auto& ray, const Vec3 direction) {
-    ray.dx = direction.x;
-    ray.dy = direction.y;
-    ray.dz = direction.z;
 }
 
 } // namespace opsys

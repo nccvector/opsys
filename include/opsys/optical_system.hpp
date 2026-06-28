@@ -4,8 +4,8 @@
 #include "opsys/ray.hpp"
 #include "opsys/sagitta.hpp"
 
-#include <cstddef>
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <type_traits>
 #include <vector>
@@ -17,23 +17,41 @@ namespace detail {
 constexpr double k_ray_epsilon_mm = 1.0e-9;
 constexpr double k_surface_intersection_tolerance_mm = 1.0e-7;
 
-[[nodiscard]] inline bool finite_ray(const RayLike auto& ray) {
-    const Vec3 origin = ray_origin_mm(ray);
-    const Vec3 direction = ray_direction(ray);
-    const double wavelength = ray_wavelength(ray);
-    return std::isfinite(origin.x)
-        && std::isfinite(origin.y)
-        && std::isfinite(origin.z)
-        && std::isfinite(direction.x)
-        && std::isfinite(direction.y)
-        && std::isfinite(direction.z)
-        && std::isfinite(wavelength)
-        && length(direction) > 0.0
-        && wavelength > 0.0;
+[[nodiscard]] inline double dot(
+    const double ax,
+    const double ay,
+    const double az,
+    const double bx,
+    const double by,
+    const double bz) {
+    return ax * bx + ay * by + az * bz;
 }
 
-[[nodiscard]] inline double radial_distance(Vec3 point) {
-    return std::hypot(point.x, point.y);
+[[nodiscard]] inline double length(const double x, const double y, const double z) {
+    return std::sqrt(dot(x, y, z, x, y, z));
+}
+
+inline void normalize(double& x, double& y, double& z) {
+    const double len = length(x, y, z);
+    x /= len;
+    y /= len;
+    z /= len;
+}
+
+[[nodiscard]] inline bool finite_ray(const RayLike auto& ray) {
+    return std::isfinite(ray.ox)
+        && std::isfinite(ray.oy)
+        && std::isfinite(ray.oz)
+        && std::isfinite(ray.dx)
+        && std::isfinite(ray.dy)
+        && std::isfinite(ray.dz)
+        && std::isfinite(ray.wavelength)
+        && length(ray.dx, ray.dy, ray.dz) > 0.0
+        && ray.wavelength > 0.0;
+}
+
+[[nodiscard]] inline double radial_distance(const double x, const double y) {
+    return std::hypot(x, y);
 }
 
 [[nodiscard]] inline std::optional<double> forward_t(double t) {
@@ -43,26 +61,43 @@ constexpr double k_surface_intersection_tolerance_mm = 1.0e-7;
     return t;
 }
 
-[[nodiscard]] inline std::optional<Vec3> refract(
-    const Vec3 &incident,
-    const Vec3 &surface_normal,
+[[nodiscard]] inline bool refract(
+    const double incident_x,
+    const double incident_y,
+    const double incident_z,
+    double normal_x,
+    double normal_y,
+    double normal_z,
     const double n_incident,
-    const double n_transmitted) {
-    Vec3 normal = normalize(surface_normal);
-    const Vec3 direction = normalize(incident);
+    const double n_transmitted,
+    double& refracted_x,
+    double& refracted_y,
+    double& refracted_z) {
+    normalize(normal_x, normal_y, normal_z);
 
-    if (dot(direction, normal) > 0.0) {
-        normal = -normal;
+    double direction_x = incident_x;
+    double direction_y = incident_y;
+    double direction_z = incident_z;
+    normalize(direction_x, direction_y, direction_z);
+
+    if (dot(direction_x, direction_y, direction_z, normal_x, normal_y, normal_z) > 0.0) {
+        normal_x = -normal_x;
+        normal_y = -normal_y;
+        normal_z = -normal_z;
     }
 
     const double eta = n_incident / n_transmitted;
-    const double cos_i = -dot(normal, direction);
+    const double cos_i = -dot(normal_x, normal_y, normal_z, direction_x, direction_y, direction_z);
     const double k = 1.0 - eta * eta * (1.0 - cos_i * cos_i);
     if (k < 0.0) {
-        return std::nullopt;
+        return false;
     }
 
-    return normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
+    refracted_x = eta * direction_x + (eta * cos_i - std::sqrt(k)) * normal_x;
+    refracted_y = eta * direction_y + (eta * cos_i - std::sqrt(k)) * normal_y;
+    refracted_z = eta * direction_z + (eta * cos_i - std::sqrt(k)) * normal_z;
+    normalize(refracted_x, refracted_y, refracted_z);
+    return true;
 }
 
 } // namespace detail
@@ -127,34 +162,27 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
 }
 
 [[nodiscard]] inline std::optional<double> intersect_surface(const RayLike auto& ray, const OpticalSurface& surface) {
-    const Vec3 origin = ray_origin_mm(ray);
-    const Vec3 direction = ray_direction(ray);
     return std::visit([&](const auto& sagitta) -> std::optional<double> {
         using Sagitta = std::decay_t<decltype(sagitta)>;
 
         if constexpr (std::is_same_v<Sagitta, PlaneSagitta>) {
-            if (detail::near_zero(direction.z)) {
+            if (detail::near_zero(ray.dz)) {
                 return std::nullopt;
             }
-            return detail::forward_t((surface.vertex_z_mm - origin.z) / direction.z);
+            return detail::forward_t((surface.vertex_z_mm - ray.oz) / ray.dz);
         } else {
             if (detail::near_zero(sagitta.radius_mm)) {
                 return std::nullopt;
             }
 
             const double k = 1.0 + sagitta.conic_constant;
-            const double z0 = origin.z - surface.vertex_z_mm;
-            const double a = direction.x * direction.x
-                + direction.y * direction.y
-                + k * direction.z * direction.z;
-            const double b = 2.0 * (origin.x * direction.x
-                + origin.y * direction.y
-                + k * z0 * direction.z
-                - sagitta.radius_mm * direction.z);
-            const double c = origin.x * origin.x
-                + origin.y * origin.y
-                + k * z0 * z0
-                - 2.0 * sagitta.radius_mm * z0;
+            const double z0 = ray.oz - surface.vertex_z_mm;
+            const double a = ray.dx * ray.dx + ray.dy * ray.dy + k * ray.dz * ray.dz;
+            const double b = 2.0 * (ray.ox * ray.dx
+                + ray.oy * ray.dy
+                + k * z0 * ray.dz
+                - sagitta.radius_mm * ray.dz);
+            const double c = ray.ox * ray.ox + ray.oy * ray.oy + k * z0 * z0 - 2.0 * sagitta.radius_mm * z0;
 
             std::optional<double> best_t;
             const auto consider_root = [&](const double t) {
@@ -163,16 +191,18 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
                     return;
                 }
 
-                const Vec3 point = origin + *forward * direction;
+                const double hit_x = ray.ox + *forward * ray.dx;
+                const double hit_y = ray.oy + *forward * ray.dy;
+                const double hit_z = ray.oz + *forward * ray.dz;
                 const std::optional<double> expected_z = detail::conic_sagitta(
-                    detail::radial_distance(point),
+                    detail::radial_distance(hit_x, hit_y),
                     sagitta.radius_mm,
                     sagitta.conic_constant);
                 if (!expected_z.has_value()) {
                     return;
                 }
 
-                const double local_z = point.z - surface.vertex_z_mm;
+                const double local_z = hit_z - surface.vertex_z_mm;
                 if (std::abs(local_z - *expected_z) > detail::k_surface_intersection_tolerance_mm) {
                     return;
                 }
@@ -203,24 +233,34 @@ inline void add_surface(OpticalSystem& system, const OpticalSurface &surface) {
     }, surface.shape.model);
 }
 
-[[nodiscard]] inline std::optional<Vec3> surface_normal(Vec3 point, const OpticalSurface& surface) {
-    return std::visit([&](const auto& sagitta) -> std::optional<Vec3> {
+[[nodiscard]] inline bool surface_normal(
+    const double point_x,
+    const double point_y,
+    const double point_z,
+    const OpticalSurface& surface,
+    double& normal_x,
+    double& normal_y,
+    double& normal_z) {
+    return std::visit([&](const auto& sagitta) -> bool {
         using Sagitta = std::decay_t<decltype(sagitta)>;
 
         if constexpr (std::is_same_v<Sagitta, PlaneSagitta>) {
-            return Vec3{0.0, 0.0, 1.0};
+            normal_x = 0.0;
+            normal_y = 0.0;
+            normal_z = 1.0;
+            return true;
         } else {
             if (detail::near_zero(sagitta.radius_mm)) {
-                return std::nullopt;
+                return false;
             }
 
-            const double z = point.z - surface.vertex_z_mm;
+            const double z = point_z - surface.vertex_z_mm;
             const double k = 1.0 + sagitta.conic_constant;
-            return normalize(Vec3{
-                -point.x,
-                -point.y,
-                sagitta.radius_mm - k * z,
-            });
+            normal_x = -point_x;
+            normal_y = -point_y;
+            normal_z = sagitta.radius_mm - k * z;
+            detail::normalize(normal_x, normal_y, normal_z);
+            return true;
         }
     }, surface.shape.model);
 }
@@ -237,28 +277,46 @@ namespace detail {
         return TraceStatus::no_intersection;
     }
 
-    const Vec3 origin = ray_origin_mm(ray);
-    const Vec3 direction = ray_direction(ray);
-    const Vec3 hit = origin + *hit_t * direction;
-    if (radial_distance(hit) > surface.aperture_radius_mm) {
+    const double hit_x = ray.ox + *hit_t * ray.dx;
+    const double hit_y = ray.oy + *hit_t * ray.dy;
+    const double hit_z = ray.oz + *hit_t * ray.dz;
+    if (radial_distance(hit_x, hit_y) > surface.aperture_radius_mm) {
         return TraceStatus::missed_aperture;
     }
 
-    const std::optional<Vec3> normal = surface_normal(hit, surface);
-    if (!normal.has_value()) {
+    double normal_x{};
+    double normal_y{};
+    double normal_z{};
+    if (!surface_normal(hit_x, hit_y, hit_z, surface, normal_x, normal_y, normal_z)) {
         return TraceStatus::no_intersection;
     }
 
-    const double wavelength = ray_wavelength(ray);
-    const double n_before = refractive_index(current_medium, wavelength);
-    const double n_after = refractive_index(next_medium, wavelength);
-    const std::optional<Vec3> refracted = refract(direction, *normal, n_before, n_after);
-    if (!refracted.has_value()) {
+    const double n_before = refractive_index(current_medium, ray.wavelength);
+    const double n_after = refractive_index(next_medium, ray.wavelength);
+    double refracted_x{};
+    double refracted_y{};
+    double refracted_z{};
+    if (!refract(
+            ray.dx,
+            ray.dy,
+            ray.dz,
+            normal_x,
+            normal_y,
+            normal_z,
+            n_before,
+            n_after,
+            refracted_x,
+            refracted_y,
+            refracted_z)) {
         return TraceStatus::total_internal_reflection;
     }
 
-    set_ray_origin_mm(ray, hit + k_ray_epsilon_mm * *refracted);
-    set_ray_direction(ray, *refracted);
+    ray.ox = hit_x + k_ray_epsilon_mm * refracted_x;
+    ray.oy = hit_y + k_ray_epsilon_mm * refracted_y;
+    ray.oz = hit_z + k_ray_epsilon_mm * refracted_z;
+    ray.dx = refracted_x;
+    ray.dy = refracted_y;
+    ray.dz = refracted_z;
     current_medium = next_medium;
     return TraceStatus::ok;
 }

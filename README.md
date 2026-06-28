@@ -9,6 +9,7 @@ The repository also includes a raylib editor for inspecting and tweaking optical
 - Header-only `opsys` library under `include/opsys`.
 - Value-based `Medium`, `OpticalSurface`, and `OpticalSystem` types.
 - External ray support through the `opsys::RayLike` concept.
+- No owned ray or vector implementation; tracing uses scalar fields from caller-owned rays.
 - `PlaneSagitta` and `ConicSagitta` surface models.
 - Fixed compile-time optical preset tables in `include/opsys/presets.hpp`.
 - Spectral ray tracing with wavelength-dependent medium indices.

@@ -20,10 +20,15 @@ bool near(double lhs, double rhs, double tolerance) {
     return std::abs(lhs - rhs) <= tolerance;
 }
 
-bool near_vec(const opsys::Vec3 lhs, const opsys::Vec3 rhs, const double tolerance) {
-    return near(lhs.x, rhs.x, tolerance)
-        && near(lhs.y, rhs.y, tolerance)
-        && near(lhs.z, rhs.z, tolerance);
+bool near_point(const std::array<double, 3> lhs, const std::array<double, 3> rhs, const double tolerance) {
+    return near(lhs[0], rhs[0], tolerance)
+        && near(lhs[1], rhs[1], tolerance)
+        && near(lhs[2], rhs[2], tolerance);
+}
+
+[[nodiscard]] std::array<double, 3> normalized_direction(const opsys::RayLike auto& ray) {
+    const double length = std::sqrt(ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz);
+    return {ray.dx / length, ray.dy / length, ray.dz / length};
 }
 
 struct TestRay {
@@ -36,19 +41,21 @@ struct TestRay {
     double wavelength{};
 };
 
-std::optional<opsys::Vec3> point_at_z(const opsys::RayLike auto& ray, const double z_mm) {
-    const opsys::Vec3 origin = opsys::ray_origin_mm(ray);
-    const opsys::Vec3 direction = opsys::ray_direction(ray);
-    if (near(direction.z, 0.0, 1.0e-14)) {
+std::optional<std::array<double, 3>> point_at_z(const opsys::RayLike auto& ray, const double z_mm) {
+    if (near(ray.dz, 0.0, 1.0e-14)) {
         return std::nullopt;
     }
 
-    const double t = (z_mm - origin.z) / direction.z;
+    const double t = (z_mm - ray.oz) / ray.dz;
     if (!std::isfinite(t)) {
         return std::nullopt;
     }
 
-    return origin + t * direction;
+    return std::array<double, 3>{
+        ray.ox + t * ray.dx,
+        ray.oy + t * ray.dy,
+        ray.oz + t * ray.dz,
+    };
 }
 
 bool traces_plane_parallel_plate() {
@@ -225,39 +232,39 @@ bool reverse_trace_round_trips_fixed_optical_presets() {
                 const opsys::TraceResult<TestRay> forward = opsys::trace(system, forward_input);
                 ok = expect(forward.status == opsys::TraceStatus::ok, "forward preset ray should trace") && ok;
 
-                const std::optional<opsys::Vec3> image_point = point_at_z(forward.output_ray, image_z_mm);
+                const std::optional<std::array<double, 3>> image_point = point_at_z(forward.output_ray, image_z_mm);
                 ok = expect(image_point.has_value(), "forward output ray should reach image-side plane") && ok;
                 if (forward.status != opsys::TraceStatus::ok || !image_point.has_value()) {
                     continue;
                 }
 
-                const opsys::Vec3 reverse_direction = -opsys::ray_direction(forward.output_ray);
                 const TestRay reverse_input{
-                    .ox = image_point->x,
-                    .oy = image_point->y,
-                    .oz = image_point->z,
-                    .dx = reverse_direction.x,
-                    .dy = reverse_direction.y,
-                    .dz = reverse_direction.z,
+                    .ox = (*image_point)[0],
+                    .oy = (*image_point)[1],
+                    .oz = (*image_point)[2],
+                    .dx = -forward.output_ray.dx,
+                    .dy = -forward.output_ray.dy,
+                    .dz = -forward.output_ray.dz,
                     .wavelength = wavelength_nm,
                 };
                 const opsys::TraceResult<TestRay> reverse = opsys::reverse_trace(system, reverse_input);
                 ok = expect(reverse.status == opsys::TraceStatus::ok, "reverse preset ray should trace") && ok;
 
-                const std::optional<opsys::Vec3> returned_world_point = point_at_z(reverse.output_ray, world_z_mm);
+                const std::optional<std::array<double, 3>> returned_world_point = point_at_z(reverse.output_ray, world_z_mm);
                 ok = expect(returned_world_point.has_value(), "reverse output ray should reach world-side plane") && ok;
                 if (reverse.status != opsys::TraceStatus::ok || !returned_world_point.has_value()) {
                     continue;
                 }
 
                 ok = expect(
-                    near_vec(*returned_world_point, opsys::ray_origin_mm(forward_input), 1.0e-6),
+                    near_point(*returned_world_point, {forward_input.ox, forward_input.oy, forward_input.oz}, 1.0e-6),
                     "reverse ray should return to the forward input point") && ok;
                 ok = expect(
-                    near_vec(
-                        opsys::normalize(opsys::ray_direction(reverse.output_ray)),
-                        -opsys::normalize(opsys::ray_direction(forward_input)),
-                        1.0e-10),
+                    near_point(normalized_direction(reverse.output_ray), {
+                        -normalized_direction(forward_input)[0],
+                        -normalized_direction(forward_input)[1],
+                        -normalized_direction(forward_input)[2],
+                    }, 1.0e-10),
                     "reverse ray should leave opposite the forward input direction") && ok;
             }
         }

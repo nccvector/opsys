@@ -17,7 +17,6 @@ target_sources(opsys
         FILE_SET HEADERS
         BASE_DIRS include
         FILES
-        include/opsys/geometry.hpp
         include/opsys/opsys.hpp
         include/opsys/medium.hpp
         include/opsys/presets.hpp

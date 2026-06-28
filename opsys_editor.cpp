@@ -100,8 +100,13 @@ struct SpectralRay {
     Color color{};
 };
 
+struct PathPoint {
+    double y{};
+    double z{};
+};
+
 struct RayPath {
-    std::vector<opsys::Vec3> points;
+    std::vector<PathPoint> points;
     opsys::TraceStatus status{opsys::TraceStatus::ok};
 };
 
@@ -358,34 +363,50 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     };
 }
 
-[[nodiscard]] Vector2 to_screen(const View2D& view, const opsys::Vec3 point) {
+[[nodiscard]] Vector2 to_screen(const View2D& view, const double y_mm, const double z_mm) {
     return Vector2{
-        .x = view.canvas.x + 0.5f * view.canvas.width + static_cast<float>((point.z - view.center_z_mm) * view.px_per_mm),
-        .y = view.canvas.y + 0.5f * view.canvas.height - static_cast<float>((point.y - view.center_y_mm) * view.px_per_mm),
+        .x = view.canvas.x + 0.5f * view.canvas.width + static_cast<float>((z_mm - view.center_z_mm) * view.px_per_mm),
+        .y = view.canvas.y + 0.5f * view.canvas.height - static_cast<float>((y_mm - view.center_y_mm) * view.px_per_mm),
     };
 }
 
-[[nodiscard]] opsys::Vec3 normalize_or_forward(const opsys::Vec3 value) {
-    const double len = opsys::length(value);
+[[nodiscard]] Vector2 to_screen(const View2D& view, const PathPoint point) {
+    return to_screen(view, point.y, point.z);
+}
+
+void normalize_or_forward(double& x, double& y, double& z) {
+    const double len = std::sqrt(x * x + y * y + z * z);
     if (near_zero(len) || !std::isfinite(len)) {
-        return {0.0, 0.0, 1.0};
+        x = 0.0;
+        y = 0.0;
+        z = 1.0;
+        return;
     }
 
-    return value / len;
+    x /= len;
+    y /= len;
+    z /= len;
 }
 
 [[nodiscard]] EditorRay make_ray(
-    const opsys::Vec3 origin_mm,
-    const opsys::Vec3 direction,
+    const double ox,
+    const double oy,
+    const double oz,
+    const double dx,
+    const double dy,
+    const double dz,
     const double wavelength_nm) {
-    const opsys::Vec3 normalized_direction = normalize_or_forward(direction);
+    double normalized_dx = dx;
+    double normalized_dy = dy;
+    double normalized_dz = dz;
+    normalize_or_forward(normalized_dx, normalized_dy, normalized_dz);
     return {
-        .ox = origin_mm.x,
-        .oy = origin_mm.y,
-        .oz = origin_mm.z,
-        .dx = normalized_direction.x,
-        .dy = normalized_direction.y,
-        .dz = normalized_direction.z,
+        .ox = ox,
+        .oy = oy,
+        .oz = oz,
+        .dx = normalized_dx,
+        .dy = normalized_dy,
+        .dz = normalized_dz,
         .wavelength = wavelength_nm,
     };
 }
@@ -463,8 +484,12 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     switch (state.rays.preset) {
         case RayPreset::single_offset: {
             source_rays.push_back(SourceRay{make_ray(
-                {0.0, state.rays.single_offset_mm, start_z},
-                {0.0, 0.0, 1.0},
+                0.0,
+                state.rays.single_offset_mm,
+                start_z,
+                0.0,
+                0.0,
+                1.0,
                 state.rays.wavelength_nm)});
             break;
         }
@@ -476,8 +501,12 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double y = lerp_double(-0.82 * aperture, 0.82 * aperture, t);
                 source_rays.push_back(SourceRay{make_ray(
-                    {0.0, y, start_z},
-                    {0.0, 0.0, 1.0},
+                    0.0,
+                    y,
+                    start_z,
+                    0.0,
+                    0.0,
+                    1.0,
                     state.rays.wavelength_nm)});
             }
             break;
@@ -486,34 +515,55 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
         case RayPreset::angled_center: {
             const double angle = deg_to_rad(state.rays.angle_deg);
             const double distance = first_z - start_z;
-            const opsys::Vec3 origin{0.0, -std::tan(angle) * distance, start_z};
-            const opsys::Vec3 target{0.0, 0.0, first_z};
-            source_rays.push_back(SourceRay{make_ray(origin, target - origin, state.rays.wavelength_nm)});
+            const double origin_y = -std::tan(angle) * distance;
+            source_rays.push_back(SourceRay{make_ray(
+                0.0,
+                origin_y,
+                start_z,
+                0.0,
+                -origin_y,
+                first_z - start_z,
+                state.rays.wavelength_nm)});
             break;
         }
 
         case RayPreset::edge_pair: {
             const double y = clamp_double(state.rays.edge_fraction, 0.1, 0.98) * aperture;
             source_rays.push_back(SourceRay{make_ray(
-                {0.0, -y, start_z},
-                {0.0, 0.0, 1.0},
+                0.0,
+                -y,
+                start_z,
+                0.0,
+                0.0,
+                1.0,
                 state.rays.wavelength_nm)});
             source_rays.push_back(SourceRay{make_ray(
-                {0.0, y, start_z},
-                {0.0, 0.0, 1.0},
+                0.0,
+                y,
+                start_z,
+                0.0,
+                0.0,
+                1.0,
                 state.rays.wavelength_nm)});
             break;
         }
 
         case RayPreset::point_source: {
             const int count = clamp_int(state.rays.point_samples, 2, 25);
-            const opsys::Vec3 origin{0.0, state.rays.point_source_y_mm, state.rays.point_source_z_mm};
+            const double origin_y = state.rays.point_source_y_mm;
+            const double origin_z = state.rays.point_source_z_mm;
             source_rays.reserve(static_cast<std::size_t>(count));
             for (int i = 0; i < count; ++i) {
                 const double t = count == 1 ? 0.5 : static_cast<double>(i) / static_cast<double>(count - 1);
                 const double target_y = lerp_double(-0.92 * aperture, 0.92 * aperture, t);
-                const opsys::Vec3 target{0.0, target_y, first_z};
-                source_rays.push_back(SourceRay{make_ray(origin, target - origin, state.rays.wavelength_nm)});
+                source_rays.push_back(SourceRay{make_ray(
+                    0.0,
+                    origin_y,
+                    origin_z,
+                    0.0,
+                    target_y - origin_y,
+                    first_z - origin_z,
+                    state.rays.wavelength_nm)});
             }
             break;
         }
@@ -542,26 +592,47 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     return rays;
 }
 
-[[nodiscard]] std::optional<opsys::Vec3> refract_direction(
-    const opsys::Vec3 incident,
-    const opsys::Vec3 surface_normal,
+[[nodiscard]] bool refract_direction(
+    const double incident_x,
+    const double incident_y,
+    const double incident_z,
+    double normal_x,
+    double normal_y,
+    double normal_z,
     const double n_incident,
-    const double n_transmitted) {
-    opsys::Vec3 normal = opsys::normalize(surface_normal);
-    const opsys::Vec3 direction = opsys::normalize(incident);
+    const double n_transmitted,
+    double& refracted_x,
+    double& refracted_y,
+    double& refracted_z) {
+    normalize_or_forward(normal_x, normal_y, normal_z);
 
-    if (opsys::dot(direction, normal) > 0.0) {
-        normal = -normal;
+    double direction_x = incident_x;
+    double direction_y = incident_y;
+    double direction_z = incident_z;
+    normalize_or_forward(direction_x, direction_y, direction_z);
+
+    const auto dot = [](const double ax, const double ay, const double az, const double bx, const double by, const double bz) {
+        return ax * bx + ay * by + az * bz;
+    };
+
+    if (dot(direction_x, direction_y, direction_z, normal_x, normal_y, normal_z) > 0.0) {
+        normal_x = -normal_x;
+        normal_y = -normal_y;
+        normal_z = -normal_z;
     }
 
     const double eta = n_incident / n_transmitted;
-    const double cos_i = -opsys::dot(normal, direction);
+    const double cos_i = -dot(normal_x, normal_y, normal_z, direction_x, direction_y, direction_z);
     const double k = 1.0 - eta * eta * (1.0 - cos_i * cos_i);
     if (k < 0.0) {
-        return std::nullopt;
+        return false;
     }
 
-    return opsys::normalize(eta * direction + (eta * cos_i - std::sqrt(k)) * normal);
+    refracted_x = eta * direction_x + (eta * cos_i - std::sqrt(k)) * normal_x;
+    refracted_y = eta * direction_y + (eta * cos_i - std::sqrt(k)) * normal_y;
+    refracted_z = eta * direction_z + (eta * cos_i - std::sqrt(k)) * normal_z;
+    normalize_or_forward(refracted_x, refracted_y, refracted_z);
+    return true;
 }
 
 [[nodiscard]] RayPath trace_path(
@@ -570,31 +641,36 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
     const double end_z_mm) {
     RayPath path{};
     EditorRay ray = input;
-    opsys::set_ray_direction(ray, normalize_or_forward(opsys::ray_direction(ray)));
+    normalize_or_forward(ray.dx, ray.dy, ray.dz);
     opsys::Medium current_medium = system.initial_medium;
-    path.points.push_back(opsys::ray_origin_mm(ray));
+    path.points.push_back(PathPoint{.y = ray.oy, .z = ray.oz});
 
     for (const opsys::OpticalSurface& surface : system.surfaces) {
         const std::optional<double> hit_t = opsys::intersect_surface(ray, surface);
-        const opsys::Vec3 origin = opsys::ray_origin_mm(ray);
-        const opsys::Vec3 direction = opsys::ray_direction(ray);
         if (!hit_t.has_value()) {
-            const double fallback_t = std::abs(end_z_mm - origin.z) + 40.0;
-            path.points.push_back(origin + fallback_t * direction);
+            const double fallback_t = std::abs(end_z_mm - ray.oz) + 40.0;
+            path.points.push_back(PathPoint{
+                .y = ray.oy + fallback_t * ray.dy,
+                .z = ray.oz + fallback_t * ray.dz,
+            });
             path.status = opsys::TraceStatus::no_intersection;
             return path;
         }
 
-        const opsys::Vec3 hit = origin + *hit_t * direction;
-        path.points.push_back(hit);
+        const double hit_x = ray.ox + *hit_t * ray.dx;
+        const double hit_y = ray.oy + *hit_t * ray.dy;
+        const double hit_z = ray.oz + *hit_t * ray.dz;
+        path.points.push_back(PathPoint{.y = hit_y, .z = hit_z});
 
-        if (std::hypot(hit.x, hit.y) > surface.aperture_radius_mm) {
+        if (std::hypot(hit_x, hit_y) > surface.aperture_radius_mm) {
             path.status = opsys::TraceStatus::missed_aperture;
             return path;
         }
 
-        const std::optional<opsys::Vec3> normal = opsys::surface_normal(hit, surface);
-        if (!normal.has_value()) {
+        double normal_x{};
+        double normal_y{};
+        double normal_z{};
+        if (!opsys::surface_normal(hit_x, hit_y, hit_z, surface, normal_x, normal_y, normal_z)) {
             path.status = opsys::TraceStatus::no_intersection;
             return path;
         }
@@ -602,28 +678,46 @@ void cycle_optical_preset(EditorState& state, const bool forward) {
         const double wavelength = opsys::ray_wavelength(ray);
         const double n_before = opsys::refractive_index(current_medium, wavelength);
         const double n_after = opsys::refractive_index(surface.medium_after, wavelength);
-        const std::optional<opsys::Vec3> refracted = refract_direction(direction, *normal, n_before, n_after);
-        if (!refracted.has_value()) {
+        double refracted_x{};
+        double refracted_y{};
+        double refracted_z{};
+        if (!refract_direction(
+                ray.dx,
+                ray.dy,
+                ray.dz,
+                normal_x,
+                normal_y,
+                normal_z,
+                n_before,
+                n_after,
+                refracted_x,
+                refracted_y,
+                refracted_z)) {
             path.status = opsys::TraceStatus::total_internal_reflection;
             return path;
         }
 
-        opsys::set_ray_origin_mm(ray, hit + k_ray_epsilon_mm * *refracted);
-        opsys::set_ray_direction(ray, *refracted);
+        ray.ox = hit_x + k_ray_epsilon_mm * refracted_x;
+        ray.oy = hit_y + k_ray_epsilon_mm * refracted_y;
+        ray.oz = hit_z + k_ray_epsilon_mm * refracted_z;
+        ray.dx = refracted_x;
+        ray.dy = refracted_y;
+        ray.dz = refracted_z;
         current_medium = surface.medium_after;
     }
 
     double t = 70.0;
-    const opsys::Vec3 origin = opsys::ray_origin_mm(ray);
-    const opsys::Vec3 direction = opsys::ray_direction(ray);
-    if (!near_zero(direction.z)) {
-        t = (end_z_mm - origin.z) / direction.z;
+    if (!near_zero(ray.dz)) {
+        t = (end_z_mm - ray.oz) / ray.dz;
         if (t < 1.0 || !std::isfinite(t)) {
             t = 70.0;
         }
     }
 
-    path.points.push_back(origin + t * direction);
+    path.points.push_back(PathPoint{
+        .y = ray.oy + t * ray.dy,
+        .z = ray.oz + t * ray.dz,
+    });
     path.status = opsys::TraceStatus::ok;
     return path;
 }
@@ -811,24 +905,23 @@ void draw_grid(const View2D& view) {
 
     for (int z_step = z_start; z_step <= z_end; ++z_step) {
         const double z = z_step * grid_mm;
-        const Vector2 a = to_screen(view, opsys::Vec3{0.0, bottom_y, z});
-        const Vector2 b = to_screen(view, opsys::Vec3{0.0, top_y, z});
+        const Vector2 a = to_screen(view, bottom_y, z);
+        const Vector2 b = to_screen(view, top_y, z);
         DrawLineV(a, b, z_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 
     for (int y_step = y_start; y_step <= y_end; ++y_step) {
         const double y = y_step * grid_mm;
-        const Vector2 a = to_screen(view, opsys::Vec3{0.0, y, left_z});
-        const Vector2 b = to_screen(view, opsys::Vec3{0.0, y, right_z});
+        const Vector2 a = to_screen(view, y, left_z);
+        const Vector2 b = to_screen(view, y, right_z);
         DrawLineV(a, b, y_step == 0 ? Color{95, 105, 122, 180} : Color{43, 49, 60, 155});
     }
 }
 
-[[nodiscard]] opsys::Vec3 surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
+[[nodiscard]] PathPoint surface_point_at_y(const SurfaceEdit& edit, const double y_mm) {
     const opsys::SagittaSurface surface = to_sagitta_surface(edit);
     const std::optional<double> sagitta = opsys::sagitta_mm(surface, std::abs(y_mm));
-    return opsys::Vec3{
-        .x = 0.0,
+    return PathPoint{
         .y = y_mm,
         .z = edit.vertex_z_mm + sagitta.value_or(0.0),
     };
@@ -843,8 +936,7 @@ void draw_surface_curve(const View2D& view, const SurfaceEdit& edit, const Color
     for (int i = 0; i <= samples; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(samples);
         const double y = lerp_double(-aperture, aperture, t);
-        const opsys::Vec3 point = surface_point_at_y(edit, y);
-        const Vector2 screen = to_screen(view, point);
+        const Vector2 screen = to_screen(view, surface_point_at_y(edit, y));
         if (has_previous) {
             DrawLineEx(previous, screen, 2.2f, color);
         }
@@ -888,8 +980,8 @@ void draw_lens_medium_regions(const View2D& view, const std::vector<SurfaceEdit>
 
 void draw_aperture_lines(const View2D& view, const std::vector<SurfaceEdit>& surfaces) {
     for (const SurfaceEdit& surface : surfaces) {
-        const Vector2 top = to_screen(view, opsys::Vec3{0.0, surface.aperture_radius_mm, surface.vertex_z_mm});
-        const Vector2 bottom = to_screen(view, opsys::Vec3{0.0, -surface.aperture_radius_mm, surface.vertex_z_mm});
+        const Vector2 top = to_screen(view, surface.aperture_radius_mm, surface.vertex_z_mm);
+        const Vector2 bottom = to_screen(view, -surface.aperture_radius_mm, surface.vertex_z_mm);
         DrawCircleV(top, 3.0f, Color{214, 221, 232, 180});
         DrawCircleV(bottom, 3.0f, Color{214, 221, 232, 180});
     }
